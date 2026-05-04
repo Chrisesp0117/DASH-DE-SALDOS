@@ -8,19 +8,21 @@ module.exports = async (req, res) => {
   }
 
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  const vercelUrl = process.env.VERCEL_URL || req.headers['x-forwarded-host'] || req.headers.host;
+  const publicWebhookBaseUrl = process.env.TELEGRAM_WEBHOOK_URL || process.env.PUBLIC_WEBHOOK_URL || '';
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET || '';
 
   if (!token) {
     return res.status(400).json({ ok: false, error: 'TELEGRAM_BOT_TOKEN não configurado' });
   }
 
-  if (!vercelUrl) {
-    return res.status(400).json({ ok: false, error: 'VERCEL_URL não disponível' });
+  if (!publicWebhookBaseUrl) {
+    return res.status(400).json({
+      ok: false,
+      error: 'TELEGRAM_WEBHOOK_URL não configurado'
+    });
   }
 
-  const normalizedHost = String(vercelUrl).replace(/^https?:\/\//, '').replace(/\/$/, '');
-  const webhookUrl = `https://${normalizedHost}/api/telegram`;
+  const webhookUrl = `${String(publicWebhookBaseUrl).replace(/\/$/, '')}/api/telegram`;
 
   try {
     const payload = new URLSearchParams();
