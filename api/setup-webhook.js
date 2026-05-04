@@ -8,7 +8,7 @@ module.exports = async (req, res) => {
   }
 
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  const vercelUrl = process.env.VERCEL_URL;
+  const vercelUrl = process.env.VERCEL_URL || req.headers['x-forwarded-host'] || req.headers.host;
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET || '';
 
   if (!token) {
@@ -19,16 +19,27 @@ module.exports = async (req, res) => {
     return res.status(400).json({ ok: false, error: 'VERCEL_URL não disponível' });
   }
 
-  const webhookUrl = `https://${vercelUrl}/api/telegram`;
+  const normalizedHost = String(vercelUrl).replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const webhookUrl = `https://${normalizedHost}/api/telegram`;
 
   try {
-    const payload = {
-      url: webhookUrl,
-      secret_token: secret || undefined,
-      drop_pending_updates: true
-    };
+    const payload = new URLSearchParams();
+    payload.set('url', webhookUrl);
+    payload.set('drop_pending_updates', 'true');
 
-    const response = await axios.post(`https://api.telegram.org/bot${token}/setWebhook`, payload);
+    if (secret) {
+      payload.set('secret_token', secret);
+    }
+
+    const response = await axios.post(
+      `https://api.telegram.org/bot${token}/setWebhook`,
+      payload.toString(),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      }
+    );
 
     return res.status(200).json({
       ok: true,
