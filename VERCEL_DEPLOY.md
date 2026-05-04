@@ -21,6 +21,7 @@ REFRESH_TOKEN = seu_refresh_token
 SPREADSHEET_ID = seu_spreadsheet_id
 META_TOKEN = seu_meta_token
 TELEGRAM_BOT_TOKEN = seu_bot_token
+TELEGRAM_WEBHOOK_SECRET = seu_secret_webhook
 MCC_ID = seu_mcc_principal
 MCC_FALLBACK_1 = seu_mcc_fallback_1
 MCC_FALLBACK_2 = seu_mcc_fallback_2
@@ -44,6 +45,22 @@ Toda vez que você fizer push para `main`, o Vercel automaticamente:
 1. Detecta a mudança
 2. Faz o build
 3. Realiza o deploy
+
+## Webhook do Telegram
+
+Depois do deploy, configure o webhook uma única vez acessando:
+
+`https://SEU-DOMINIO-VERCEL/api/setup-webhook`
+
+Isso registra o endpoint `/api/telegram` como webhook do bot. Se você definiu `TELEGRAM_WEBHOOK_SECRET`, o Vercel valida esse segredo nas chamadas recebidas.
+
+## Agendamentos no Vercel
+
+O projeto usa Vercel Cron para:
+- atualizar a planilha a cada 2 horas
+- enviar relatórios às 8h e 17h
+
+Esses jobs passam pelos endpoints em `/api/cron/*`.
 
 ## Troubleshooting
 

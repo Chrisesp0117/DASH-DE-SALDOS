@@ -1,15 +1,17 @@
 {
   "version": 2,
-  "builds": [
+  "crons": [
     {
-      "src": "daemon.js",
-      "use": "@vercel/node"
-    }
-  ],
-  "routes": [
+      "path": "/api/cron/update",
+      "schedule": "0 */2 * * *"
+    },
     {
-      "src": "/(.*)",
-      "dest": "daemon.js"
+      "path": "/api/cron/report-8h",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/report-17h",
+      "schedule": "0 17 * * *"
     }
   ]
 }

@@ -7,6 +7,7 @@ const USERS_FILE = path.join(__dirname, '..', '..', 'users.json');
 
 let bot = null;
 let users = [];
+let initialized = false;
 
 // Load registered users from file
 function loadUsers() {
@@ -50,7 +51,12 @@ function initTelegramBot(sheetsInstance, spreadsheetId) {
     return null;
   }
 
-  bot = new TelegramBot(TOKEN, { polling: true });
+  if (bot && initialized) {
+    return bot;
+  }
+
+  bot = new TelegramBot(TOKEN, { polling: false });
+  initialized = true;
 
   // /start command - only register and welcome
   bot.onText(/^\/start$/, (msg) => {
@@ -157,13 +163,19 @@ Você está registrado para receber alertas automáticos ✅`;
     }
   });
 
-  // Handle polling errors
-  bot.on('polling_error', (err) => {
-    console.error('❌ Erro de polling Telegram:', err);
-  });
-
   console.log('✅ Bot Telegram iniciado');
   return bot;
+}
+
+function processWebhookUpdate(update, sheetsInstance, spreadsheetId) {
+  const telegramBot = initTelegramBot(sheetsInstance, spreadsheetId);
+
+  if (!telegramBot) {
+    return false;
+  }
+
+  telegramBot.processUpdate(update);
+  return true;
 }
 
 // Broadcast alert to all registered users
@@ -202,6 +214,7 @@ function getRegisteredUsers() {
 
 module.exports = {
   initTelegramBot,
+  processWebhookUpdate,
   broadcastAlert,
   getBot,
   getRegisteredUsers,
