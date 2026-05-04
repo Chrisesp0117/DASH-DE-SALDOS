@@ -4,12 +4,25 @@ const { generateReport } = require('./reportGenerator');
 
 let scheduledJobs = [];
 
-function scheduleAlerts(sheets, spreadsheetId) {
+function scheduleAlerts(sheets, spreadsheetId, runUpdateFunction) {
   // Cancel existing jobs
   scheduledJobs.forEach(job => job.cancel());
   scheduledJobs = [];
 
-  // 8h (08:00)
+  // Atualizar planilha a cada 2 horas (*/2 = a cada 2 horas)
+  const jobUpdate = schedule.scheduleJob('0 */2 * * *', async () => {
+    console.log('🔄 Atualizando dados da planilha (a cada 2h)...');
+    try {
+      if (typeof runUpdateFunction === 'function') {
+        await runUpdateFunction();
+        console.log('✅ Dados atualizados com sucesso');
+      }
+    } catch (err) {
+      console.error('❌ Erro ao atualizar dados:', err);
+    }
+  });
+
+  // 8h (08:00) - Enviar relatório
   const job8 = schedule.scheduleJob('0 8 * * *', async () => {
     console.log('⏰ Gerando relatório para 8h...');
     try {
@@ -20,7 +33,7 @@ function scheduleAlerts(sheets, spreadsheetId) {
     }
   });
 
-  // 17h (17:00)
+  // 17h (17:00) - Enviar relatório
   const job17 = schedule.scheduleJob('0 17 * * *', async () => {
     console.log('⏰ Gerando relatório para 17h...');
     try {
@@ -31,10 +44,12 @@ function scheduleAlerts(sheets, spreadsheetId) {
     }
   });
 
-  scheduledJobs.push(job8, job17);
-  console.log('✅ Agendamentos configurados (8h e 17h)');
+  scheduledJobs.push(jobUpdate, job8, job17);
+  console.log('✅ Agendamentos configurados:');
+  console.log('   • Atualização de dados: a cada 2 horas');
+  console.log('   • Relatório: 8h e 17h');
 
-  return { job8, job17 };
+  return { jobUpdate, job8, job17 };
 }
 
 function stopScheduler() {

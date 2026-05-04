@@ -379,11 +379,14 @@ async function start() {
     const botSheets = await getSheets();
     const bot = initTelegramBot(botSheets, spreadsheetId);
     if (bot) {
-      scheduleAlerts(botSheets, process.env.SPREADSHEET_ID);
-      console.log('\n🤖 Sistema de alertas Telegram ativo (8h e 17h)');
+      // Passar a função de atualização para o scheduler
+      scheduleAlerts(botSheets, spreadsheetId, () => run());
+      console.log('\n🤖 Sistema de alertas Telegram ativo');
+      console.log('   • Atualização de dados: a cada 2 horas');
+      console.log('   • Relatórios: 8h e 17h');
     }
     
-    console.log('\n✅ Execução finalizada.');
+    console.log('\n✅ Execução finalizada. Aguardando próximos agendamentos...');
   } catch (e) {
     console.error('Erro na execução:', e);
     process.exit(1);
