@@ -32,13 +32,14 @@ async function getMetaData(accountId, token, context = {}) {
   let saldoRes, spend7dRes;
 
   try {
-    saldoRes = await axios.get(
-      `https://graph.facebook.com/v18.0/${accountId}?fields=spend_cap,amount_spent&access_token=${accessToken}`
-    );
-
-    spend7dRes = await axios.get(
-      `https://graph.facebook.com/v18.0/${accountId}/insights?level=account&fields=spend&date_preset=last_7d&access_token=${accessToken}`
-    );
+    [saldoRes, spend7dRes] = await Promise.all([
+      axios.get(
+        `https://graph.facebook.com/v18.0/${accountId}?fields=spend_cap,amount_spent&access_token=${accessToken}`
+      ),
+      axios.get(
+        `https://graph.facebook.com/v18.0/${accountId}/insights?level=account&fields=spend&date_preset=last_7d&access_token=${accessToken}`
+      )
+    ]);
   } catch (err) {
     const metaInfo = err.response?.data || err.message;
     const classified = classifyMetaError(metaInfo);

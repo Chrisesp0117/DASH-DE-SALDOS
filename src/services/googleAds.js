@@ -133,13 +133,23 @@ async function getGoogleData(customerId, refreshToken, context = {}) {
       });
 
       // saldo (account budgets)
-      const budgetRows = await customer.query(`
+      const budgetPromise = customer.query(`
         SELECT
           account_budget.adjusted_spending_limit_micros,
           account_budget.approved_spending_limit_micros,
           account_budget.amount_served_micros
         FROM account_budget
       `);
+
+      const spendPromise = customer.query(`
+        SELECT
+          metrics.cost_micros
+        FROM customer
+        WHERE segments.date DURING LAST_7_DAYS
+      `).then(rows => ({ ok: true, rows })).catch(err => ({ ok: false, err }));
+
+      const budgetRows = await budgetPromise;
+      const spendResult = await spendPromise;
 
       const saldos = (budgetRows || []).map(function (r) {
         const acc = r.account_budget || {};
@@ -163,12 +173,10 @@ async function getGoogleData(customerId, refreshToken, context = {}) {
       // gasto 7 dias - pode falhar se estamos consultando a partir de um MCC
       let gasto7d = 0;
       try {
-        const spendRows = await customer.query(`
-          SELECT
-            metrics.cost_micros
-          FROM customer
-          WHERE segments.date DURING LAST_7_DAYS
-        `);
+        if (!spendResult.ok) {
+          throw spendResult.err;
+        }
+        const spendRows = spendResult.rows;
         gasto7d = (spendRows && spendRows[0] && spendRows[0].metrics && spendRows[0].metrics.cost_micros) ? spendRows[0].metrics.cost_micros / 1000000 : 0;
       } catch (spendErr) {
         const rawSpend = (spendErr && spendErr.response && JSON.stringify(spendErr.response.errors)) || (spendErr && spendErr.message) || String(spendErr);
