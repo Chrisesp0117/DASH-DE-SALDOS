@@ -18,7 +18,6 @@ const requiredFiles = [
   'src/services/googleAds.js',
   'src/services/meta.js',
   'src/services/sheets.js',
-  'src/services/telegram.js',
   'src/core/calculator.js',
   'src/core/scheduler.js',
   'src/core/reportGenerator.js',
@@ -45,7 +44,7 @@ const requiredEnvVars = [
   'GOOGLE_CLIENT_EMAIL',
   'REFRESH_TOKEN',
   'META_TOKEN',
-  'TELEGRAM_BOT_TOKEN'
+  
 ];
 
 let allEnvOk = true;
@@ -62,7 +61,6 @@ const requiredModules = [
   'googleapis',
   'google-ads-api',
   'axios',
-  'node-telegram-bot-api',
   'node-schedule'
 ];
 

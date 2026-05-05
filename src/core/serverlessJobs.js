@@ -1,6 +1,5 @@
 const { getSheets } = require('../services/sheets');
 const { run } = require('../run');
-const { initTelegramBot, broadcastAlert } = require('../services/telegram');
 const { generateReport } = require('./reportGenerator');
 
 function getCronSecretFromRequest(req) {
@@ -37,10 +36,10 @@ async function runUpdateJob(options = {}) {
 async function runReportJob(options = {}) {
   const alertTitle = String(options.alertTitle || '').trim();
   const sheets = await getSheets();
-  initTelegramBot(sheets, process.env.SPREADSHEET_ID);
   const report = await generateReport(sheets, process.env.SPREADSHEET_ID);
   const message = alertTitle ? `<b>${alertTitle}</b>\n\n${report}` : report;
-  await broadcastAlert(message);
+  // Previously this function broadcasted the report via Telegram.
+  // Bot integration removed — return the generated report for callers to use.
   return report;
 }
 

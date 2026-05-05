@@ -20,9 +20,6 @@ DEVELOPER_TOKEN = seu_developer_token
 REFRESH_TOKEN = seu_refresh_token
 SPREADSHEET_ID = seu_spreadsheet_id
 META_TOKEN = seu_meta_token
-TELEGRAM_BOT_TOKEN = seu_bot_token
-TELEGRAM_WEBHOOK_SECRET = seu_secret_webhook
-TELEGRAM_WEBHOOK_URL = https://seu-dominio-producao.vercel.app
 MCC_ID = seu_mcc_principal
 MCC_FALLBACK_1 = seu_mcc_fallback_1
 MCC_FALLBACK_2 = seu_mcc_fallback_2
@@ -40,23 +37,45 @@ Após o deploy:
 - ✅ Acesse a URL do projeto para confirmar que está rodando
 - ✅ Os logs aparecerão em "Logs" na aba "Deployments"
 
-## Atualizações Automáticas
+## Agendamentos
 
-Toda vez que você fizer push para `main`, o Vercel automaticamente:
-1. Detecta a mudança
-2. Faz o build
-3. Realiza o deploy
+Recomenda-se usar `cron-job.org` para agendar chamadas HTTP aos endpoints:
 
-## Webhook do Telegram
+- `/api/update` a cada 2 horas
+- `/api/report` no horário desejado (ex.: 8h e 17h locais)
 
-Depois do deploy, configure o webhook uma única vez acessando:
+Passe `CRON_SECRET` no header `x-cron-secret` se configurado.
 
-`https://SEU-DOMINIO-VERCEL/api/setup-webhook`
+## Troubleshooting
 
-Isso registra o endpoint `/api/telegram` como webhook do bot. Se você definiu `TELEGRAM_WEBHOOK_SECRET`, o Vercel valida esse segredo nas chamadas recebidas.
+### Dados não atualizam
+- Verifique `SPREADSHEET_ID`
+- Confirme se a conta Google tem acesso à planilha
+- Verifique `REFRESH_TOKEN`
 
-Importante: configure `TELEGRAM_WEBHOOK_URL` com o domínio público estável do projeto, por exemplo `https://dash-de-saldos.vercel.app`. Não use o URL de deploy temporário, senão o webhook quebra no próximo deploy.
+### Erro de API
+- Revise as credenciais do Google Ads em `CLIENT_ID` e `CLIENT_SECRET`
+- Confirme se `DEVELOPER_TOKEN` é válido
+- Verifique os `MCC_ID`s
 
+## Logs em Tempo Real
+
+Para monitorar a execução:
+1. Acesse seu projeto no Vercel
+2. Vá para **Deployments**
+3. Clique no deployment ativo
+4. Acesse a aba **Logs**
+
+## Rollback
+
+Para voltar a uma versão anterior:
+1. Vá para **Deployments**
+2. Clique nos três pontos do deployment desejado
+3. Selecione "Promote to Production"
+
+---
+
+**Dica**: Configure webhooks do GitHub para notificar quando o deploy terminar!
 Depois da configuração, confira o status em `/api/webhook-info` para validar se o Telegram está apontando para o endpoint certo.
 
 ## Agendamentos no Vercel
