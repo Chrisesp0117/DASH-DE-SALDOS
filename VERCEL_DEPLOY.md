@@ -57,13 +57,17 @@ Isso registra o endpoint `/api/telegram` como webhook do bot. Se você definiu `
 
 Importante: configure `TELEGRAM_WEBHOOK_URL` com o domínio público estável do projeto, por exemplo `https://dash-de-saldos.vercel.app`. Não use o URL de deploy temporário, senão o webhook quebra no próximo deploy.
 
+Depois da configuração, confira o status em `/api/webhook-info` para validar se o Telegram está apontando para o endpoint certo.
+
 ## Agendamentos no Vercel
 
 O projeto usa Vercel Cron para:
 - atualizar a planilha a cada 2 horas
-- enviar relatórios às 8h e 17h
+- enviar relatórios às 8h e 17h no horário de Brasília
 
 Esses jobs passam pelos endpoints em `/api/cron/*`.
+
+Observação: o Vercel Cron usa UTC. Por isso os relatórios ficam agendados para 11h e 20h UTC, que equivalem a 8h e 17h em Brasília.
 
 ## Troubleshooting
 

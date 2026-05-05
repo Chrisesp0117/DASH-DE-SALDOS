@@ -8,7 +8,11 @@ module.exports = async (req, res) => {
   }
 
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  const publicWebhookBaseUrl = process.env.TELEGRAM_WEBHOOK_URL || process.env.PUBLIC_WEBHOOK_URL || '';
+  const publicWebhookBaseUrl =
+    process.env.TELEGRAM_WEBHOOK_URL ||
+    process.env.PUBLIC_WEBHOOK_URL ||
+    (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '') ||
+    (process.env.VERCEL_URL ? `https://${String(process.env.VERCEL_URL).replace(/^https?:\/\//, '')}` : '');
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET || '';
 
   if (!token) {
@@ -43,10 +47,13 @@ module.exports = async (req, res) => {
       }
     );
 
+    const infoResponse = await axios.get(`https://api.telegram.org/bot${token}/getWebhookInfo`);
+
     return res.status(200).json({
       ok: true,
       webhookUrl,
-      telegram: response.data
+      telegram: response.data,
+      webhookInfo: infoResponse.data
     });
   } catch (error) {
     console.error('❌ Erro ao configurar webhook:', error.response ? error.response.data : error.message);

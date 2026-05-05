@@ -7,11 +7,11 @@
     },
     {
       "path": "/api/cron/report-8h",
-      "schedule": "0 8 * * *"
+      "schedule": "0 11 * * *"
     },
     {
       "path": "/api/cron/report-17h",
-      "schedule": "0 17 * * *"
+      "schedule": "0 20 * * *"
     }
   ]
 }

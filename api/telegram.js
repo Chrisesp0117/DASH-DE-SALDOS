@@ -22,6 +22,7 @@ module.exports = async (req, res) => {
   try {
     const sheets = await getSheets();
     const update = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    console.log('📩 Telegram webhook update received');
     processWebhookUpdate(update, sheets, process.env.SPREADSHEET_ID);
     return res.status(200).json({ ok: true });
   } catch (error) {
