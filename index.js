@@ -1,13 +1,23 @@
-module.exports = (req, res) => {
-  // Support both Node serverless (`req, res`) and Edge/Fetch (`Request` -> return Response)
-  try {
-    if (res && typeof res.status === 'function') {
-      return res.status(200).send('OK');
-    }
-  } catch (e) {
-    // fallthrough to Response
+function sendText(res, text, statusCode = 200) {
+  if (res && typeof res.status === 'function' && typeof res.send === 'function') {
+    return res.status(statusCode).send(text);
   }
 
-  // Edge runtime: `req` is a Request object
-  return new Response('OK', { status: 200 });
-};
+  if (res && typeof res.setHeader === 'function' && typeof res.end === 'function') {
+    res.statusCode = statusCode;
+    res.setHeader('content-type', 'text/plain; charset=utf-8');
+    res.end(text);
+    return;
+  }
+
+  if (typeof Response !== 'undefined') {
+    return new Response(text, {
+      status: statusCode,
+      headers: { 'content-type': 'text/plain; charset=utf-8' }
+    });
+  }
+
+  return { statusCode, body: text };
+}
+
+module.exports = (req, res) => sendText(res, 'OK', 200);
