@@ -29,20 +29,28 @@ function normalizePath(urlValue) {
 module.exports = async (req, res) => {
   const path = normalizePath(req && req.url);
 
-  const routes = {
-    '/api': './api/index',
-    '/api/update': './api/update',
-    '/api/report': './api/report',
-    '/api/cron/update': './api/cron/update',
-    '/api/cron/report-8h': './api/cron/report-8h',
-    '/api/cron/report-17h': './api/cron/report-17h'
-  };
+  if (path === '/api') {
+    return require('./api/index')(req, res);
+  }
 
-  const target = routes[path];
+  if (path === '/api/update') {
+    return require('./api/update')(req, res);
+  }
 
-  if (target) {
-    const handler = require(target);
-    return handler(req, res);
+  if (path === '/api/report') {
+    return require('./api/report')(req, res);
+  }
+
+  if (path === '/api/cron/update') {
+    return require('./api/cron/update')(req, res);
+  }
+
+  if (path === '/api/cron/report-8h') {
+    return require('./api/cron/report-8h')(req, res);
+  }
+
+  if (path === '/api/cron/report-17h') {
+    return require('./api/cron/report-17h')(req, res);
   }
 
   return sendText(res, 'OK', 200);
