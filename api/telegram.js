@@ -1,7 +1,7 @@
 require('dotenv').config({ path: '.env' });
 
 const { getSheets } = require('../src/services/sheets');
-const { processWebhookUpdate } = require('../src/services/telegram');
+const { handleWebhookUpdate } = require('../src/services/telegram');
 
 module.exports = async (req, res) => {
   if (req.method === 'GET') {
@@ -23,7 +23,7 @@ module.exports = async (req, res) => {
     const sheets = await getSheets();
     const update = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     console.log('📩 Telegram webhook update received');
-    processWebhookUpdate(update, sheets, process.env.SPREADSHEET_ID);
+    await handleWebhookUpdate(update, sheets, process.env.SPREADSHEET_ID);
     return res.status(200).json({ ok: true });
   } catch (error) {
     console.error('❌ Erro no webhook Telegram:', error);

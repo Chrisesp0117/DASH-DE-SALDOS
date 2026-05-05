@@ -58,11 +58,33 @@ function initTelegramBot(sheetsInstance, spreadsheetId) {
   bot = new TelegramBot(TOKEN, { polling: false });
   initialized = true;
 
-  // /start command - only register and welcome
-  bot.onText(/^\/start$/, (msg) => {
-    const chatId = msg.chat.id;
-    registerUser(chatId);
+  console.log('✅ Bot Telegram iniciado');
+  return bot;
+}
 
+async function handleWebhookUpdate(update, sheetsInstance, spreadsheetId) {
+  const telegramBot = initTelegramBot(sheetsInstance, spreadsheetId);
+
+  if (!telegramBot) {
+    return false;
+  }
+
+  const message = update && (update.message || update.edited_message || update.channel_post);
+  const text = message && typeof message.text === 'string' ? message.text.trim() : '';
+
+  if (!message || !text || !text.startsWith('/')) {
+    return false;
+  }
+
+  const chatId = message.chat && message.chat.id;
+
+  if (!chatId) {
+    return false;
+  }
+
+  registerUser(chatId);
+
+  if (text === '/start') {
     const welcomeText = `🤖 <b>Dashboard de Saldos</b>
 
 Bot registrado com sucesso.
@@ -74,15 +96,11 @@ Bot registrado com sucesso.
 
 Você receberá alertas automáticos às 8h e 17h se estiver registrado.`;
 
-    bot.sendMessage(chatId, welcomeText, { parse_mode: 'HTML' })
-      .catch(err => console.error('❌ Erro ao enviar /start:', err));
-  });
+    await telegramBot.sendMessage(chatId, welcomeText, { parse_mode: 'HTML' });
+    return true;
+  }
 
-  // /help command - individual response
-  bot.onText(/^\/help$/, (msg) => {
-    const chatId = msg.chat.id;
-    registerUser(chatId);
-
+  if (text === '/help') {
     const helpText = `🤖 <b>Seu Dashboard Bot</b>
 
 Este bot fornece acesso aos dados de saldo e gasto do dashboard.
@@ -98,84 +116,43 @@ Todos os usuários registrados recebem alertas automáticos às 8h e 17h todos o
 <b>Status:</b>
 Você está registrado para receber alertas automáticos ✅`;
 
-    bot.sendMessage(chatId, helpText, { parse_mode: 'HTML' })
-      .catch(err => console.error('❌ Erro ao enviar /help:', err));
-  });
-
-  // /exam command - individual response
-  bot.onText(/^\/exam$/, async (msg) => {
-    const chatId = msg.chat.id;
-    registerUser(chatId);
-
-    try {
-      bot.sendMessage(chatId, '⏳ Gerando relatório...')
-        .catch(err => console.error('Erro ao enviar mensagem de espera:', err));
-
-      const { generateReport } = require('../core/reportGenerator');
-      const report = await generateReport(sheetsInstance, spreadsheetId);
-      
-      bot.sendMessage(chatId, `<b>📊 Relatório Atual</b>\n\n${report}`, { parse_mode: 'HTML' })
-        .catch(err => console.error('❌ Erro ao enviar /exam:', err));
-    } catch (err) {
-      console.error('❌ Erro ao gerar relatório:', err);
-      bot.sendMessage(chatId, `❌ Erro ao gerar relatório: ${err.message}`)
-        .catch(e => console.error('Erro ao enviar mensagem de erro:', e));
-    }
-  });
-
-  // /atualizar command - individual response
-  bot.onText(/^\/atualizar$/, async (msg) => {
-    const chatId = msg.chat.id;
-    registerUser(chatId);
-
-    try {
-      const loadingMessage = await bot.sendMessage(chatId, '⏳ Carregando...\n0 | 0 contas');
-
-      // Trigger main data collection from index.js
-      const { run } = require('../index');
-      await run({
-        onProgress: async (current, total) => {
-          const text = `⏳ Carregando...\n${current} | ${total} contas`;
-          try {
-            await bot.editMessageText(text, {
-              chat_id: chatId,
-              message_id: loadingMessage.message_id
-            });
-          } catch (editErr) {
-            console.error('Erro ao atualizar progresso:', editErr);
-          }
-        }
-      });
-
-      bot.sendMessage(chatId, '✅ Dados atualizados com sucesso!\n\nUse /exam para ver o relatório.')
-        .catch(err => console.error('❌ Erro ao enviar confirmação:', err));
-    } catch (err) {
-      console.error('❌ Erro ao atualizar:', err);
-      bot.sendMessage(chatId, `❌ Erro ao atualizar: ${err.message}`)
-        .catch(e => console.error('Erro ao enviar mensagem de erro:', e));
-    }
-  });
-
-  // Register user on any command message
-  bot.on('message', (msg) => {
-    if (msg.text && msg.text.startsWith('/')) {
-      registerUser(msg.chat.id);
-    }
-  });
-
-  console.log('✅ Bot Telegram iniciado');
-  return bot;
-}
-
-function processWebhookUpdate(update, sheetsInstance, spreadsheetId) {
-  const telegramBot = initTelegramBot(sheetsInstance, spreadsheetId);
-
-  if (!telegramBot) {
-    return false;
+    await telegramBot.sendMessage(chatId, helpText, { parse_mode: 'HTML' });
+    return true;
   }
 
-  telegramBot.processUpdate(update);
-  return true;
+  if (text === '/exam') {
+    await telegramBot.sendMessage(chatId, '⏳ Gerando relatório...');
+
+    const { generateReport } = require('../core/reportGenerator');
+    const report = await generateReport(sheetsInstance, spreadsheetId);
+
+    await telegramBot.sendMessage(chatId, `<b>📊 Relatório Atual</b>\n\n${report}`, { parse_mode: 'HTML' });
+    return true;
+  }
+
+  if (text === '/atualizar') {
+    const loadingMessage = await telegramBot.sendMessage(chatId, '⏳ Carregando...\n0 | 0 contas');
+
+    const { run } = require('../index');
+    await run({
+      onProgress: async (current, total) => {
+        const progressText = `⏳ Carregando...\n${current} | ${total} contas`;
+        try {
+          await telegramBot.editMessageText(progressText, {
+            chat_id: chatId,
+            message_id: loadingMessage.message_id
+          });
+        } catch (editErr) {
+          console.error('Erro ao atualizar progresso:', editErr);
+        }
+      }
+    });
+
+    await telegramBot.sendMessage(chatId, '✅ Dados atualizados com sucesso!\n\nUse /exam para ver o relatório.');
+    return true;
+  }
+
+  return false;
 }
 
 // Broadcast alert to all registered users
@@ -214,7 +191,7 @@ function getRegisteredUsers() {
 
 module.exports = {
   initTelegramBot,
-  processWebhookUpdate,
+  handleWebhookUpdate,
   broadcastAlert,
   getBot,
   getRegisteredUsers,
