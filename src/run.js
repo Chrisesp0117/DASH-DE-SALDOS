@@ -282,7 +282,7 @@ async function processClienteRow(row, indices) {
   ];
 }
 
-async function updateWelcomeLastRun(sheets, spreadsheetId) {
+async function updateWelcomeLastRun(sheets, spreadsheetId, status = 'completed') {
   const meta = await sheets.spreadsheets.get({
     spreadsheetId,
     fields: 'sheets(properties(title))'
@@ -300,12 +300,14 @@ async function updateWelcomeLastRun(sheets, spreadsheetId) {
 
   const safeSheetTitle = targetSheet.properties.title.replace(/'/g, "''");
 
+  const displayValue = status === 'updating' ? 'Atualizando...' : formatLastUpdatePTBR();
+
   await sheets.spreadsheets.values.update({
     spreadsheetId,
     range: `'${safeSheetTitle}'!J5`,
     valueInputOption: 'RAW',
     requestBody: {
-      values: [[formatLastUpdatePTBR()]]
+      values: [[displayValue]]
     }
   });
 
@@ -319,6 +321,13 @@ async function run(options = {}) {
   const sheets = await getSheets();
 
   await ensureSheetExists(sheets, process.env.SPREADSHEET_ID, 'JOB_STATE');
+
+  // Mark as "Atualizando..." at the start
+  try {
+    await updateWelcomeLastRun(sheets, process.env.SPREADSHEET_ID, 'updating');
+  } catch (e) {
+    console.warn('Não foi possível marcar como "Atualizando...":', e.message || e);
+  }
 
   const clientesRes = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SPREADSHEET_ID,
@@ -415,7 +424,7 @@ async function run(options = {}) {
   await writeJobCursor(sheets, process.env.SPREADSHEET_ID, 0);
 
   try {
-    await updateWelcomeLastRun(sheets, process.env.SPREADSHEET_ID);
+    await updateWelcomeLastRun(sheets, process.env.SPREADSHEET_ID, 'completed');
   } catch (e) {
     console.warn('Não foi possível atualizar a última execução em BEM VINDO:', e.message || e);
   }
