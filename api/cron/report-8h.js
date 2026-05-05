@@ -1,18 +1,19 @@
 require('dotenv').config({ path: '.env' });
 
-const { assertCronAuth, runReportJob } = require('../../src/core/serverlessJobs');
+const { assertCronAuth, sendJson, runReportJob } = require('../../src/core/serverlessJobs');
 
 module.exports = async (req, res) => {
-  if (!assertCronAuth(req, res)) {
-    return;
+  const authResponse = assertCronAuth(req, res);
+  if (authResponse) {
+    return authResponse;
   }
 
   try {
-    const report = await runReportJob({ alertTitle: '🌅 ALERTA 8h' });
+    await runReportJob({ alertTitle: '🌅 ALERTA 8h' });
 
-    return res.status(200).json({ ok: true, message: 'Relatório das 8h enviado' });
+    return sendJson(res, { ok: true, message: 'Relatório das 8h enviado' }, 200);
   } catch (error) {
     console.error('❌ Erro no cron das 8h:', error);
-    return res.status(500).json({ ok: false, error: error.message });
+    return sendJson(res, { ok: false, error: error.message }, 500);
   }
 };

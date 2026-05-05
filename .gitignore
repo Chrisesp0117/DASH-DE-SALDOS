@@ -1,4 +1,7 @@
-# Dependências
+credentials.json
+.env
+node_modules/
+.vercel/# Dependências
 node_modules/
 npm-debug.log
 yarn-error.log
