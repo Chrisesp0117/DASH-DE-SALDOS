@@ -8,8 +8,9 @@ module.exports = async (req, res) => {
   }
 
   try {
-    await runUpdateJob();
-    return res.status(200).json({ ok: true, message: 'Planilha atualizada com sucesso' });
+    const batchSize = Number(req.query?.batchSize || process.env.UPDATE_BATCH_SIZE || 3);
+    await runUpdateJob({ batchSize });
+    return res.status(200).json({ ok: true, message: 'Planilha atualizada com sucesso', batchSize });
   } catch (error) {
     console.error('❌ Erro no cron de atualização:', error);
     return res.status(500).json({ ok: false, error: error.message });

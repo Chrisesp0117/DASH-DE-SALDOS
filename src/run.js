@@ -60,6 +60,88 @@ async function deleteSheetIfExists(sheets, spreadsheetId, title) {
   return true;
 }
 
+async function processClienteRow(row, indices) {
+  const {
+    idxCliente,
+    idxPlataforma,
+    idxCustomerId,
+    idxGestor,
+    idxSupervisor,
+    idxRevisao
+  } = indices;
+
+  const cliente = (row[idxCliente] || '').trim();
+  const plataforma = (row[idxPlataforma] || '').trim().toUpperCase();
+  const id = String(row[idxCustomerId] || '').trim();
+  const gestor = (row[idxGestor] || '').trim();
+  const supervisor = idxSupervisor >= 0 ? (row[idxSupervisor] || '').trim() : '';
+  const revisao = String(idxRevisao >= 0 ? (row[idxRevisao] || '') : '').trim();
+
+  const customerIdNormalized = id.replace(/\D/g, '');
+
+  let data;
+  let obs = '';
+  let processStatus = 'Atualizada';
+
+  const shouldProcess = revisao.toLowerCase() === 'ok';
+
+  if (!shouldProcess) {
+    processStatus = 'Erro';
+    obs = 'Pulado por revisão';
+    console.log(`⏭️ Pulado por revisão | cliente="${cliente}" | revisão="${revisao}"`);
+  } else {
+    if (plataforma === 'GOOGLE') {
+      if (!isValidGoogleCustomerId(customerIdNormalized)) {
+        console.error(`❌ Linha inválida para GOOGLE (cliente: ${cliente}). CustomerID deve ter 10 dígitos.`);
+        processStatus = 'Erro';
+        obs = 'Customer ID inválido (esperado 10 dígitos)';
+      } else {
+        data = await getGoogleData(
+          customerIdNormalized,
+          process.env.REFRESH_TOKEN,
+          { cliente, plataforma, id: customerIdNormalized }
+        );
+      }
+    }
+
+    if (plataforma === 'META') {
+      data = await getMetaData(
+        id,
+        process.env.META_TOKEN,
+        { cliente, plataforma, id }
+      );
+    }
+
+    if (!data || data.ok === false) {
+      const err = data && data.error ? data.error : null;
+      processStatus = 'Erro';
+      obs = (err && err.message) ? err.message : `Erro ao consultar ${plataforma}`;
+      console.warn(`⚠️ ${plataforma} | cliente="${cliente}" | id="${id}" | status=erro | obs="${obs}"`);
+      data = null;
+    } else {
+      data = data;
+    }
+  }
+
+  const rowData = data ? buildRow(cliente, plataforma, data) : null;
+
+  return [
+    rowData ? rowData.data : new Date().toISOString(),
+    cliente,
+    plataforma,
+    rowData ? rowData.saldoFormatado : '-',
+    rowData ? rowData.gasto7dFormatado : '-',
+    rowData ? rowData.mediaFormatado : '-',
+    rowData ? rowData.diasFormatado : '-',
+    gestor,
+    supervisor,
+    processStatus,
+    obs,
+    new Date().toISOString(),
+    rowData ? rowData.identificador : ''
+  ];
+}
+
 async function updateWelcomeLastRun(sheets, spreadsheetId) {
   const meta = await sheets.spreadsheets.get({
     spreadsheetId,
@@ -92,6 +174,7 @@ async function updateWelcomeLastRun(sheets, spreadsheetId) {
 
 async function run(options = {}) {
   const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
+  const batchSize = Math.max(1, Number(options.batchSize || process.env.UPDATE_BATCH_SIZE || 3));
 
   const sheets = await getSheets();
 
@@ -118,84 +201,35 @@ async function run(options = {}) {
   const idxSupervisor = getIndex('Supervisor', -1);
   const totalClientes = clientes.length;
 
-  let output = [];
+  let output = new Array(clientes.length);
 
-  for (let i = 0; i < clientes.length; i++) {
-    const row = clientes[i];
-    const cliente = (row[idxCliente] || '').trim();
-    const plataforma = (row[idxPlataforma] || '').trim().toUpperCase();
-    const id = String(row[idxCustomerId] || '').trim();
-    const gestor = (row[idxGestor] || '').trim();
-    const supervisor = idxSupervisor >= 0 ? (row[idxSupervisor] || '').trim() : '';
-    const revisao = String(idxRevisao >= 0 ? (row[idxRevisao] || '') : '').trim();
+  for (let start = 0; start < clientes.length; start += batchSize) {
+    const batch = clientes.slice(start, start + batchSize);
+    const batchRows = await Promise.all(
+      batch.map(async (row, batchIndex) => {
+        const index = start + batchIndex;
+        const values = await processClienteRow(row, {
+          idxCliente,
+          idxPlataforma,
+          idxCustomerId,
+          idxGestor,
+          idxSupervisor,
+          idxRevisao
+        });
 
-    const customerIdNormalized = id.replace(/\D/g, '');
+        const cliente = (row[idxCliente] || '').trim();
+        console.log(`${cliente} processado`);
 
-    let data;
-    let obs = '';
-    let processStatus = 'Atualizada';
-
-    const shouldProcess = revisao.toLowerCase() === 'ok';
-
-    if (!shouldProcess) {
-      processStatus = 'Erro';
-      obs = 'Pulado por revisão';
-      console.log(`⏭️ Pulado por revisão | cliente="${cliente}" | revisão="${revisao}"`);
-    } else {
-      if (plataforma === 'GOOGLE') {
-        if (!isValidGoogleCustomerId(customerIdNormalized)) {
-          console.error(`❌ Linha inválida para GOOGLE (cliente: ${cliente}). CustomerID deve ter 10 dígitos.`);
-          processStatus = 'Erro';
-          obs = 'Customer ID inválido (esperado 10 dígitos)';
-        } else {
-          data = await getGoogleData(
-            customerIdNormalized,
-            process.env.REFRESH_TOKEN,
-            { cliente, plataforma, id: customerIdNormalized }
-          );
+        if (onProgress) {
+          await onProgress(index + 1, totalClientes, cliente);
         }
-      }
 
-      if (plataforma === 'META') {
-        data = await getMetaData(
-          id,
-          process.env.META_TOKEN,
-          { cliente, plataforma, id }
-        );
-      }
+        return { index, values };
+      })
+    );
 
-      if (!data || data.ok === false) {
-        const err = data && data.error ? data.error : null;
-        processStatus = 'Erro';
-        obs = (err && err.message) ? err.message : `Erro ao consultar ${plataforma}`;
-        console.warn(`⚠️ ${plataforma} | cliente="${cliente}" | id="${id}" | status=erro | obs="${obs}"`);
-        data = null;
-      } else {
-        data = data;
-      }
-    }
-
-    const rowData = data ? buildRow(cliente, plataforma, data) : null;
-    output.push([
-      rowData ? rowData.data : new Date().toISOString(),
-      cliente,
-      plataforma,
-      rowData ? rowData.saldoFormatado : '-',
-      rowData ? rowData.gasto7dFormatado : '-',
-      rowData ? rowData.mediaFormatado : '-',
-      rowData ? rowData.diasFormatado : '-',
-      gestor,
-      supervisor,
-      processStatus,
-      obs,
-      new Date().toISOString(),
-      rowData ? rowData.identificador : ''
-    ]);
-
-    console.log(`${cliente} processado`);
-
-    if (onProgress) {
-      await onProgress(i + 1, totalClientes, cliente);
+    for (const item of batchRows) {
+      output[item.index] = item.values;
     }
   }
 
