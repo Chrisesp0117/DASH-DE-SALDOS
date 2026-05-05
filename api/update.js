@@ -1,18 +1,19 @@
 require('dotenv').config({ path: '.env' });
 
-const { assertCronAuth, runUpdateJob } = require('../src/core/serverlessJobs');
+const { assertCronAuth, sendJson, runUpdateJob } = require('../src/core/serverlessJobs');
 
 module.exports = async (req, res) => {
-  if (!assertCronAuth(req, res)) {
-    return;
+  const authResponse = assertCronAuth(req, res);
+  if (authResponse) {
+    return authResponse;
   }
 
   try {
     const batchSize = Number(req.query?.batchSize || process.env.UPDATE_BATCH_SIZE || 3);
-    await runUpdateJob({ batchSize });
-    return res.status(200).json({ ok: true, message: 'Planilha atualizada com sucesso', batchSize });
+    const result = await runUpdateJob({ batchSize });
+    return sendJson(res, { ok: true, message: 'Planilha atualizada com sucesso', batchSize, result }, 200);
   } catch (error) {
     console.error('❌ Erro no update serverless:', error);
-    return res.status(500).json({ ok: false, error: error.message });
+    return sendJson(res, { ok: false, error: error.message }, 500);
   }
 };
