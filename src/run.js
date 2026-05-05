@@ -60,6 +60,146 @@ async function deleteSheetIfExists(sheets, spreadsheetId, title) {
   return true;
 }
 
+async function ensureSheetExists(sheets, spreadsheetId, title) {
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: 'sheets(properties(sheetId,title))'
+  });
+
+  const existing = (meta.data.sheets || []).find(
+    s => s.properties && s.properties.title === title
+  );
+
+  if (existing && existing.properties && existing.properties.sheetId !== undefined) {
+    return existing.properties.sheetId;
+  }
+
+  const response = await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [
+        {
+          addSheet: {
+            properties: {
+              title
+            }
+          }
+        }
+      ]
+    }
+  });
+
+  const created = response.data.replies && response.data.replies[0] && response.data.replies[0].addSheet;
+  return created && created.properties ? created.properties.sheetId : null;
+}
+
+async function clearDatabaseData(sheets, spreadsheetId) {
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId,
+    range: 'DATABASE!A2:M10000'
+  });
+}
+
+async function readJobCursor(sheets, spreadsheetId) {
+  try {
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: 'JOB_STATE!A1'
+    });
+
+    const value = response.data.values && response.data.values[0] && response.data.values[0][0];
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  } catch (error) {
+    return 0;
+  }
+}
+
+async function writeJobCursor(sheets, spreadsheetId, cursor) {
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: 'JOB_STATE!A1',
+    valueInputOption: 'RAW',
+    requestBody: {
+      values: [[String(cursor)]]
+    }
+  });
+}
+
+async function applyDatabaseFormatting(sheets, spreadsheetId, totalRows) {
+  const databaseRowsRes = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `DATABASE!A1:M${Math.max(totalRows + 1, 2)}`
+  });
+
+  const databaseRows = databaseRowsRes.data.values || [];
+
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: 'sheets(properties(sheetId,title))'
+  });
+
+  const databaseSheet = (meta.data.sheets || []).find(
+    s => s.properties && s.properties.title === 'DATABASE'
+  );
+
+  if (!databaseSheet || databaseSheet.properties.sheetId === undefined) {
+    return;
+  }
+
+  const formatRequests = [];
+
+  for (let i = 1; i < databaseRows.length; i++) {
+    const statusValue = databaseRows[i] && databaseRows[i][9];
+    const isError = String(statusValue).toLowerCase() === 'erro';
+    formatRequests.push({
+      repeatCell: {
+        range: {
+          sheetId: databaseSheet.properties.sheetId,
+          startRowIndex: i,
+          endRowIndex: i + 1,
+          startColumnIndex: 9,
+          endColumnIndex: 10
+        },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: isError
+              ? { red: 0.85, green: 0.2, blue: 0.2 }
+              : { red: 0.75, green: 0.9, blue: 0.75 },
+            textFormat: {
+              bold: true,
+              foregroundColor: isError
+                ? { red: 1, green: 1, blue: 1 }
+                : { red: 0, green: 0.35, blue: 0 }
+            }
+          }
+        },
+        fields: 'userEnteredFormat(backgroundColor,textFormat.foregroundColor,textFormat.bold)'
+      }
+    });
+  }
+
+  for (let col = 0; col < DATABASE_HEADERS.length; col++) {
+    formatRequests.push({
+      autoResizeDimensions: {
+        dimensions: {
+          sheetId: databaseSheet.properties.sheetId,
+          dimension: 'COLUMNS',
+          startIndex: col,
+          endIndex: col + 1
+        }
+      }
+    });
+  }
+
+  if (formatRequests.length) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: formatRequests }
+    });
+  }
+}
+
 async function processClienteRow(row, indices) {
   const {
     idxCliente,
@@ -174,9 +314,11 @@ async function updateWelcomeLastRun(sheets, spreadsheetId) {
 
 async function run(options = {}) {
   const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
-  const batchSize = Math.max(1, Number(options.batchSize || process.env.UPDATE_BATCH_SIZE || 3));
+  const batchSize = Math.max(1, Number(options.batchSize || process.env.UPDATE_BATCH_SIZE || 1));
 
   const sheets = await getSheets();
+
+  await ensureSheetExists(sheets, process.env.SPREADSHEET_ID, 'JOB_STATE');
 
   const clientesRes = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SPREADSHEET_ID,
@@ -201,55 +343,76 @@ async function run(options = {}) {
   const idxSupervisor = getIndex('Supervisor', -1);
   const totalClientes = clientes.length;
 
-  let output = new Array(clientes.length);
-
-  for (let start = 0; start < clientes.length; start += batchSize) {
-    const batch = clientes.slice(start, start + batchSize);
-    const batchRows = await Promise.all(
-      batch.map(async (row, batchIndex) => {
-        const index = start + batchIndex;
-        const values = await processClienteRow(row, {
-          idxCliente,
-          idxPlataforma,
-          idxCustomerId,
-          idxGestor,
-          idxSupervisor,
-          idxRevisao
-        });
-
-        const cliente = (row[idxCliente] || '').trim();
-        console.log(`${cliente} processado`);
-
-        if (onProgress) {
-          await onProgress(index + 1, totalClientes, cliente);
-        }
-
-        return { index, values };
-      })
-    );
-
-    for (const item of batchRows) {
-      output[item.index] = item.values;
-    }
+  let cursor = Number.isFinite(Number(options.cursor)) ? Math.max(0, Number(options.cursor)) : await readJobCursor(sheets, process.env.SPREADSHEET_ID);
+  if (!Number.isFinite(cursor) || cursor < 0 || cursor >= totalClientes) {
+    cursor = 0;
   }
 
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: process.env.SPREADSHEET_ID,
-    range: 'DATABASE!A1',
-    valueInputOption: 'RAW',
-    requestBody: {
-      values: [DATABASE_HEADERS]
-    }
-  });
+  const batchClientes = clientes.slice(cursor, cursor + batchSize);
+
+  if (cursor === 0) {
+    await clearDatabaseData(sheets, process.env.SPREADSHEET_ID);
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.SPREADSHEET_ID,
+      range: 'DATABASE!A1',
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [DATABASE_HEADERS]
+      }
+    });
+  }
+
+  if (!batchClientes.length) {
+    await writeJobCursor(sheets, process.env.SPREADSHEET_ID, 0);
+    console.log('Nenhum cliente pendente; cursor reiniciado.');
+    return { ok: true, processed: 0, total: totalClientes, cursor: 0, nextCursor: 0, finished: true };
+  }
+
+  const batchRows = await Promise.all(
+    batchClientes.map(async (row, batchIndex) => {
+      const index = cursor + batchIndex;
+      const values = await processClienteRow(row, {
+        idxCliente,
+        idxPlataforma,
+        idxCustomerId,
+        idxGestor,
+        idxSupervisor,
+        idxRevisao
+      });
+
+      const cliente = (row[idxCliente] || '').trim();
+      console.log(`${cliente} processado`);
+
+      if (onProgress) {
+        await onProgress(index + 1, totalClientes, cliente);
+      }
+
+      return { index, values };
+    })
+  );
+
+  const firstRowIndex = cursor + 2;
+  const valuesToWrite = batchRows.map(item => item.values);
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: process.env.SPREADSHEET_ID,
-    range: 'DATABASE!A2',
+    range: `DATABASE!A${firstRowIndex}`,
     valueInputOption: 'RAW',
     requestBody: {
-      values: output
+      values: valuesToWrite
     }
   });
+
+  const nextCursor = cursor + batchRows.length;
+  const finished = nextCursor >= totalClientes;
+
+  if (!finished) {
+    await writeJobCursor(sheets, process.env.SPREADSHEET_ID, nextCursor);
+    console.log(`Lote concluído. Próximo cursor: ${nextCursor}/${totalClientes}`);
+    return { ok: true, processed: batchRows.length, total: totalClientes, cursor, nextCursor, finished: false };
+  }
+
+  await writeJobCursor(sheets, process.env.SPREADSHEET_ID, 0);
 
   try {
     await updateWelcomeLastRun(sheets, process.env.SPREADSHEET_ID);
@@ -257,113 +420,11 @@ async function run(options = {}) {
     console.warn('Não foi possível atualizar a última execução em BEM VINDO:', e.message || e);
   }
 
-  const spreadsheetMeta = await sheets.spreadsheets.get({
-    spreadsheetId: process.env.SPREADSHEET_ID,
-    fields: 'sheets(properties(sheetId,title))'
-  });
-
-  const databaseSheet = (spreadsheetMeta.data.sheets || []).find(
-    s => s.properties && s.properties.title === 'DATABASE'
-  );
-
-  if (databaseSheet && databaseSheet.properties && databaseSheet.properties.sheetId !== undefined) {
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId: process.env.SPREADSHEET_ID,
-      requestBody: {
-        requests: [
-          {
-            repeatCell: {
-              range: {
-                sheetId: databaseSheet.properties.sheetId,
-                startRowIndex: 0,
-                endRowIndex: 1,
-                startColumnIndex: 0,
-                endColumnIndex: DATABASE_HEADERS.length
-              },
-              cell: {
-                userEnteredFormat: {
-                  textFormat: {
-                    bold: true
-                  }
-                }
-              },
-              fields: 'userEnteredFormat.textFormat.bold'
-            }
-          },
-          {
-            repeatCell: {
-              range: {
-                sheetId: databaseSheet.properties.sheetId,
-                startRowIndex: 1,
-                endRowIndex: output.length + 1,
-                startColumnIndex: 9,
-                endColumnIndex: 10
-              },
-              cell: {
-                userEnteredFormat: {
-                  backgroundColor: { red: 0.85, green: 1, blue: 0.85 },
-                  textFormat: { bold: true }
-                }
-              },
-              fields: 'userEnteredFormat(backgroundColor,textFormat.bold)'
-            }
-          }
-        ]
-      }
-    });
-
-    const formatRequests = [];
-    for (let i = 0; i < output.length; i++) {
-      const statusValue = output[i][9];
-      const isError = String(statusValue).toLowerCase() === 'erro';
-      formatRequests.push({
-        repeatCell: {
-          range: {
-            sheetId: databaseSheet.properties.sheetId,
-            startRowIndex: i + 1,
-            endRowIndex: i + 2,
-            startColumnIndex: 9,
-            endColumnIndex: 10
-          },
-          cell: {
-            userEnteredFormat: {
-              backgroundColor: isError
-                ? { red: 0.85, green: 0.2, blue: 0.2 }
-                : { red: 0.75, green: 0.9, blue: 0.75 },
-              textFormat: {
-                bold: true,
-                foregroundColor: isError
-                  ? { red: 1, green: 1, blue: 1 }
-                  : { red: 0, green: 0.35, blue: 0 }
-              }
-            }
-          },
-          fields: 'userEnteredFormat(backgroundColor,textFormat.foregroundColor,textFormat.bold)'
-        }
-      });
-    }
-
-    for (let col = 0; col < DATABASE_HEADERS.length; col++) {
-      formatRequests.push({
-        autoResizeDimensions: {
-          dimensions: {
-            sheetId: databaseSheet.properties.sheetId,
-            dimension: 'COLUMNS',
-            startIndex: col,
-            endIndex: col + 1
-          }
-        }
-      });
-    }
-
-    if (formatRequests.length) {
-      await sheets.spreadsheets.batchUpdate({
-        spreadsheetId: process.env.SPREADSHEET_ID,
-        requestBody: { requests: formatRequests }
-      });
-    }
+  try {
+    await applyDatabaseFormatting(sheets, process.env.SPREADSHEET_ID, totalClientes);
+  } catch (e) {
+    console.error('Erro ao formatar DATABASE:', e);
   }
-  console.log('DATABASE atualizada');
 
   try {
     const removed = await deleteSheetIfExists(sheets, process.env.SPREADSHEET_ID, 'AGG_SUPERVISOR');
@@ -381,6 +442,9 @@ async function run(options = {}) {
     console.error('Erro ao gerar BLOCOS_GESTOR:', e);
   }
 
+  console.log('DATABASE atualizada');
+
+  return { ok: true, processed: batchRows.length, total: totalClientes, cursor, nextCursor: 0, finished: true };
 }
 
 module.exports = {
