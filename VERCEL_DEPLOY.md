@@ -62,10 +62,13 @@ Depois da configuração, confira o status em `/api/webhook-info` para validar s
 ## Agendamentos no Vercel
 
 O projeto usa Vercel Cron para:
+- manter o webhook do Telegram registrado de hora em hora
 - atualizar a planilha a cada 2 horas
 - enviar relatórios às 8h e 17h no horário de Brasília
 
 Esses jobs passam pelos endpoints em `/api/cron/*`.
+
+O endpoint `/api/cron/bootstrap-webhook` revalida o webhook do Telegram automaticamente para evitar perda de configuração após deploys.
 
 Observação: o Vercel Cron usa UTC. Por isso os relatórios ficam agendados para 11h e 20h UTC, que equivalem a 8h e 17h em Brasília.
 

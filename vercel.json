@@ -2,6 +2,10 @@
   "version": 2,
   "crons": [
     {
+      "path": "/api/cron/bootstrap-webhook",
+      "schedule": "0 * * * *"
+    },
+    {
       "path": "/api/cron/update",
       "schedule": "0 */2 * * *"
     },
