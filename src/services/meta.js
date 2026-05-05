@@ -35,9 +35,13 @@ async function getMetaData(accountId, token, context = {}) {
     [saldoRes, spend7dRes] = await Promise.all([
       axios.get(
         `https://graph.facebook.com/v18.0/${accountId}?fields=spend_cap,amount_spent&access_token=${accessToken}`
+        ,
+        { timeout: 15000 }
       ),
       axios.get(
         `https://graph.facebook.com/v18.0/${accountId}/insights?level=account&fields=spend&date_preset=last_7d&access_token=${accessToken}`
+        ,
+        { timeout: 15000 }
       )
     ]);
   } catch (err) {

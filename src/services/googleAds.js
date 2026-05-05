@@ -7,6 +7,18 @@ const ads = new GoogleAdsApi({
   developer_token: process.env.DEVELOPER_TOKEN
 });
 
+function withTimeout(promise, timeoutMs, label) {
+  let timer;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timeout after ${timeoutMs}ms`)), timeoutMs);
+  });
+
+  return Promise.race([
+    promise.finally(() => clearTimeout(timer)),
+    timeoutPromise
+  ]);
+}
+
 function normalizeDigits(value) {
   return String(value || '').replace(/\D/g, '');
 }
@@ -133,20 +145,20 @@ async function getGoogleData(customerId, refreshToken, context = {}) {
       });
 
       // saldo (account budgets)
-      const budgetPromise = customer.query(`
+      const budgetPromise = withTimeout(customer.query(`
         SELECT
           account_budget.adjusted_spending_limit_micros,
           account_budget.approved_spending_limit_micros,
           account_budget.amount_served_micros
         FROM account_budget
-      `);
+      `), 20000, 'google budget query');
 
-      const spendPromise = customer.query(`
+      const spendPromise = withTimeout(customer.query(`
         SELECT
           metrics.cost_micros
         FROM customer
         WHERE segments.date DURING LAST_7_DAYS
-      `).then(rows => ({ ok: true, rows })).catch(err => ({ ok: false, err }));
+      `).then(rows => ({ ok: true, rows })).catch(err => ({ ok: false, err })), 20000, 'google spend query');
 
       const budgetRows = await budgetPromise;
       const spendResult = await spendPromise;
