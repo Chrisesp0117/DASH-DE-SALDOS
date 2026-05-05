@@ -10,6 +10,8 @@
   "version": "1.0.0",
   "description": "",
   "scripts": {
+    "build": "echo \"skip build\"",
+    "vercel-build": "echo \"skip build\"",
     "test": "echo \"Error: no test specified\" && exit 1",
     "check:keys": "node src/validateKeys.js"
   },
