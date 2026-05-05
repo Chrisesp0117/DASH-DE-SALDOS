@@ -20,4 +20,30 @@ function sendText(res, text, statusCode = 200) {
   return { statusCode, body: text };
 }
 
-module.exports = (req, res) => sendText(res, 'OK', 200);
+function normalizePath(urlValue) {
+  const raw = String(urlValue || '/');
+  const withoutQuery = raw.split('?')[0] || '/';
+  return withoutQuery.replace(/\/+$/, '') || '/';
+}
+
+module.exports = async (req, res) => {
+  const path = normalizePath(req && req.url);
+
+  const routes = {
+    '/api': './api/index',
+    '/api/update': './api/update',
+    '/api/report': './api/report',
+    '/api/cron/update': './api/cron/update',
+    '/api/cron/report-8h': './api/cron/report-8h',
+    '/api/cron/report-17h': './api/cron/report-17h'
+  };
+
+  const target = routes[path];
+
+  if (target) {
+    const handler = require(target);
+    return handler(req, res);
+  }
+
+  return sendText(res, 'OK', 200);
+};
