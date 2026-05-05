@@ -76,52 +76,27 @@ Para voltar a uma versão anterior:
 ---
 
 **Dica**: Configure webhooks do GitHub para notificar quando o deploy terminar!
-Depois da configuração, confira o status em `/api/webhook-info` para validar se o Telegram está apontando para o endpoint certo.
 
-## Agendamentos no Vercel
+## Agendamentos e Scheduler recomendado
 
-O projeto usa Vercel Cron para:
-- manter o webhook do Telegram registrado de hora em hora
-- atualizar a planilha a cada 2 horas
-- enviar relatórios às 8h e 17h no horário de Brasília
+Este projeto roda melhor com um agendador externo (ex.: `cron-job.org`) que faz chamadas HTTP aos endpoints serverless.
 
-Esses jobs passam pelos endpoints em `/api/cron/*`.
+- Agende `/api/update` a cada 2 horas
+- Agende `/api/report` nos horários desejados (ex.: 08:00 e 17:00 local)
 
-O endpoint `/api/cron/bootstrap-webhook` revalida o webhook do Telegram automaticamente para evitar perda de configuração após deploys.
+Use o header `x-cron-secret` com o valor configurado em `CRON_SECRET` para proteger esses endpoints.
 
-Observação: o Vercel Cron usa UTC. Por isso os relatórios ficam agendados para 11h e 20h UTC, que equivalem a 8h e 17h em Brasília.
+Observação: se preferir crons internos do Vercel, revise o plano e limitações da sua conta antes de usar `vercel.json` crons.
 
-## Troubleshooting
+---
 
-### Bot não responde
-- Verifique se `TELEGRAM_BOT_TOKEN` está correto nas variáveis de ambiente
-- Confira se o token foi atualizado no Telegram
+## Troubleshooting (Geral)
 
-### Dados não atualizam
-- Verifique `SPREADSHEET_ID`
-- Confirme se a conta Google tem acesso à planilha
-- Verifique `REFRESH_TOKEN`
+- Dados não atualizam: verifique `SPREADSHEET_ID` e `REFRESH_TOKEN`.
+- Erro de API: confirme `CLIENT_ID`, `CLIENT_SECRET` e `DEVELOPER_TOKEN`.
+- Logs: verifique **Deployments > Logs** no dashboard do Vercel.
 
-### Erro de API
-- Revise as credenciais do Google Ads em `CLIENT_ID` e `CLIENT_SECRET`
-- Confirme se `DEVELOPER_TOKEN` é válido
-- Verifique os `MCC_ID`s
-
-## Logs em Tempo Real
-
-Para monitorar o bot em produção:
-1. Acesse seu projeto no Vercel
-2. Vá para **Deployments**
-3. Clique no deployment ativo
-4. Acesse a aba **Logs**
-
-## Parar o Bot
-
-Se precisar pausar o bot:
-1. Vá para **Settings**
-2. Clique em **Environment Variables**
-3. Adicione `PAUSE=true`
-4. O bot continuará rodando mas não processará dados
+---
 
 ## Rollback
 
@@ -132,4 +107,4 @@ Para voltar a uma versão anterior:
 
 ---
 
-**Dica**: Configure webhooks do GitHub para notificar quando o deploy terminar!
+**Dica**: depois de remover integrações, verifique as variáveis de ambiente no painel do Vercel e remova quaisquer tokens que não são mais usados.
