@@ -115,7 +115,7 @@ Webhook ativo e bot pronto para responder ✅`;
   if (text === '/atualizar') {
     const loadingMessage = await telegramBot.sendMessage(chatId, '⏳ Carregando...\n0 | 0 contas');
 
-    const { run } = require('../index');
+    const { run } = require('../run');
     await run({
       onProgress: async (current, total) => {
         const progressText = `⏳ Carregando...\n${current} | ${total} contas`;

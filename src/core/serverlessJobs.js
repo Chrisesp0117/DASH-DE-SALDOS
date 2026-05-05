@@ -1,5 +1,5 @@
 const { getSheets } = require('../services/sheets');
-const { run } = require('../index');
+const { run } = require('../run');
 const { initTelegramBot, broadcastAlert } = require('../services/telegram');
 const { generateReport } = require('./reportGenerator');
 
