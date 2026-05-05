@@ -1,6 +1,7 @@
 require('dotenv').config({ path: '.env' });
 
 const axios = require('axios');
+const { assertCronAuth } = require('../../src/core/serverlessJobs');
 
 function getPublicWebhookBaseUrl() {
   return (
@@ -12,6 +13,10 @@ function getPublicWebhookBaseUrl() {
 }
 
 module.exports = async (req, res) => {
+  if (!assertCronAuth(req, res)) {
+    return;
+  }
+
   try {
     const token = process.env.TELEGRAM_BOT_TOKEN;
     const baseUrl = getPublicWebhookBaseUrl();

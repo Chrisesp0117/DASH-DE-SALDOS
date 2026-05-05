@@ -5,9 +5,6 @@ const { getGoogleData } = require('./services/googleAds');
 const { getMetaData } = require('./services/meta');
 const { buildRow } = require('./core/calculator');
 const { generateBlocosPorGestor } = require('./core/visualBlocks');
-const { initTelegramBot } = require('./services/telegram');
-const { scheduleAlerts } = require('./core/scheduler');
-const { runChecks } = require('./validateKeys');
 
 const DATABASE_HEADERS = [
   'Data', 'Cliente', 'Plataforma', 'Saldo', 'Gasto 7d', 'Média/dia', 'Dias restantes',
@@ -358,46 +355,17 @@ async function run(options = {}) {
 
 }
 
-async function start() {
-  try {
-    const checks = await runChecks();
-    console.log('\n🔐 Verificação de chaves:');
-    console.log(`  Env vars: ${checks.okEnv ? '✅' : '❌'}`);
-    console.log(`  Google refresh token: ${checks.okGoogle ? '✅' : '❌'}`);
-    console.log(`  Meta token: ${checks.okMeta ? '✅' : '❌'}`);
-
-    if (!checks.ok) {
-      console.error('\n❗ Falha na validação das chaves. Corrija as variáveis de ambiente e tente novamente.');
-      process.exit(1);
-    }
-
-    console.log('\n▶️  Iniciando processamento...');
-    await run();
-    
-    // Iniciar bot Telegram e scheduler
-    const spreadsheetId = process.env.SPREADSHEET_ID;
-    const botSheets = await getSheets();
-    const bot = initTelegramBot(botSheets, spreadsheetId);
-    if (bot) {
-      // Passar a função de atualização para o scheduler
-      scheduleAlerts(botSheets, spreadsheetId, () => run());
-      console.log('\n🤖 Sistema de alertas Telegram ativo');
-      console.log('   • Atualização de dados: a cada 2 horas');
-      console.log('   • Relatórios: 8h e 17h');
-    }
-    
-    console.log('\n✅ Execução finalizada. Aguardando próximos agendamentos...');
-  } catch (e) {
-    console.error('Erro na execução:', e);
-    process.exit(1);
-  }
-}
+module.exports = {
+  run
+};
 
 if (require.main === module) {
-  start();
+  run()
+    .then(() => {
+      console.log('✅ Execução concluída.');
+    })
+    .catch((error) => {
+      console.error('❌ Erro na execução:', error);
+      process.exit(1);
+    });
 }
-
-module.exports = {
-  run,
-  start
-};

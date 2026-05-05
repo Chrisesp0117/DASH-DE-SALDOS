@@ -17,6 +17,7 @@ Thumbs.db
 # Credenciais
 credentials.json
 token.json
+users.json
 
 # Build e dist
 dist/

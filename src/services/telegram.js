@@ -1,51 +1,35 @@
 const TelegramBot = require('node-telegram-bot-api');
-const fs = require('fs');
-const path = require('path');
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const USERS_FILE = path.join(__dirname, '..', '..', 'users.json');
+const ALERT_CHAT_IDS = parseChatIds(
+  process.env.TELEGRAM_ALERT_CHAT_IDS || process.env.TELEGRAM_ALERT_CHAT_ID || ''
+);
 
 let bot = null;
-let users = [];
 let initialized = false;
 
-// Load registered users from file
-function loadUsers() {
-  try {
-    if (fs.existsSync(USERS_FILE)) {
-      users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
-      if (!Array.isArray(users)) users = [];
-    } else {
-      users = [];
-      saveUsers();
-    }
-  } catch (err) {
-    console.error('❌ Erro ao carregar users.json:', err);
-    users = [];
+function parseChatIds(rawValue) {
+  if (!rawValue) {
+    return [];
   }
+
+  if (Array.isArray(rawValue)) {
+    return rawValue
+      .map(value => String(value).trim())
+      .filter(Boolean);
+  }
+
+  return String(rawValue)
+    .split(/[;,\s]+/)
+    .map(value => value.trim())
+    .filter(Boolean);
 }
 
-// Save users to file
-function saveUsers() {
-  try {
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-  } catch (err) {
-    console.error('❌ Erro ao salvar users.json:', err);
-  }
-}
-
-// Register user (implicit on first command)
-function registerUser(chatId) {
-  if (!users.includes(chatId)) {
-    users.push(chatId);
-    saveUsers();
-    console.log(`✅ Novo usuário registrado: ${chatId}`);
-  }
+function getAlertChatIds() {
+  return ALERT_CHAT_IDS.length > 0 ? ALERT_CHAT_IDS : parseChatIds(process.env.TELEGRAM_ALERT_CHAT_IDS || process.env.TELEGRAM_ALERT_CHAT_ID || '');
 }
 
 function initTelegramBot(sheetsInstance, spreadsheetId) {
-  loadUsers();
-  
   if (!TOKEN) {
     console.error('❌ TELEGRAM_BOT_TOKEN não configurado');
     return null;
@@ -82,19 +66,17 @@ async function handleWebhookUpdate(update, sheetsInstance, spreadsheetId) {
     return false;
   }
 
-  registerUser(chatId);
-
   if (text === '/start') {
     const welcomeText = `🤖 <b>Dashboard de Saldos</b>
 
-Bot registrado com sucesso.
+Bot configurado com sucesso.
 
 <b>Comandos disponíveis:</b>
 /help - Mostra esta mensagem
 /exam - Mostra relatório atual de contas
 /atualizar - Atualiza a planilha apenas quando chamado explicitamente
 
-Você receberá alertas automáticos às 8h e 17h se estiver registrado.`;
+O bot foi configurado para funcionar em modo serverless com webhook.`;
 
     await telegramBot.sendMessage(chatId, welcomeText, { parse_mode: 'HTML' });
     return true;
@@ -111,10 +93,10 @@ Este bot fornece acesso aos dados de saldo e gasto do dashboard.
 /atualizar - Força atualização imediata dos dados
 
 <b>Alertas Automáticos:</b>
-Todos os usuários registrados recebem alertas automáticos às 8h e 17h todos os dias. Cada usuário recebe alertas individuais no seu chat.
+Os alertas automáticos são enviados para os destinos configurados em TELEGRAM_ALERT_CHAT_ID ou TELEGRAM_ALERT_CHAT_IDS.
 
 <b>Status:</b>
-Você está registrado para receber alertas automáticos ✅`;
+Webhook ativo e bot pronto para responder ✅`;
 
     await telegramBot.sendMessage(chatId, helpText, { parse_mode: 'HTML' });
     return true;
@@ -155,19 +137,24 @@ Você está registrado para receber alertas automáticos ✅`;
   return false;
 }
 
-// Broadcast alert to all registered users
+// Broadcast alert to configured targets
 async function broadcastAlert(message) {
   if (!bot) {
     console.warn('⚠️ Bot não inicializado');
     return;
   }
 
-  loadUsers(); // Reload in case users file was updated
+  const targets = getAlertChatIds();
 
-  console.log(`📢 Enviando alerta para ${users.length} usuários...`);
+  if (!targets.length) {
+    console.warn('⚠️ Nenhum chat alvo configurado para alertas');
+    return;
+  }
+
+  console.log(`📢 Enviando alerta para ${targets.length} destino(s)...`);
   
   let sent = 0;
-  for (const chatId of users) {
+  for (const chatId of targets) {
     try {
       await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
       sent++;
@@ -177,16 +164,11 @@ async function broadcastAlert(message) {
     }
   }
 
-  console.log(`📊 Total: ${sent}/${users.length} usuários receberam o alerta`);
+  console.log(`📊 Total: ${sent}/${targets.length} destino(s) receberam o alerta`);
 }
 
 function getBot() {
   return bot;
-}
-
-function getRegisteredUsers() {
-  loadUsers();
-  return [...users];
 }
 
 module.exports = {
@@ -194,7 +176,6 @@ module.exports = {
   handleWebhookUpdate,
   broadcastAlert,
   getBot,
-  getRegisteredUsers,
-  loadUsers,
-  saveUsers
+  getAlertChatIds,
+  parseChatIds
 };

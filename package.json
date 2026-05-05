@@ -4,15 +4,14 @@
     "dotenv": "^17.4.2",
     "google-ads-api": "^23.0.0",
     "googleapis": "^171.4.0",
-    "node-schedule": "^2.1.1",
     "node-telegram-bot-api": "^0.67.0"
   },
   "name": "dash-de-saldos",
   "version": "1.0.0",
   "description": "",
-  "main": "daemon.js",
+  "main": "src/index.js",
   "scripts": {
-    "start": "node daemon.js",
+    "start": "node src/index.js",
     "dev": "node src/index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "check:keys": "node src/validateKeys.js"
