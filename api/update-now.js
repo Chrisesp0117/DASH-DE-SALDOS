@@ -40,6 +40,11 @@ function sendHtml(res, html, statusCode = 200) {
   return { statusCode, body: html };
 }
 
+function isQuotaExceededError(error) {
+  const msg = String((error && (error.message || error.code || error.status)) || '').toLowerCase();
+  return msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(error && error.status) === '429' || String(error && error.code) === '429';
+}
+
 module.exports = async (req, res) => {
   const secretFromQuery = req && req.query ? String(req.query.secret || '') : getQueryValue(req && req.url, 'secret');
   const secretFromHeader = req && req.headers ? String(req.headers['x-cron-secret'] || '') : '';
@@ -51,7 +56,7 @@ module.exports = async (req, res) => {
   }
 
   const batchSizeParam = req && req.query ? req.query.batchSize : getQueryValue(req && req.url, 'batchSize');
-  const batchSize = Math.max(1, Number(batchSizeParam || 100));
+  const batchSize = Math.max(1, Number(batchSizeParam || 30));
 
   let ok = true;
   let message = 'Atualização concluída com sucesso.';
@@ -60,8 +65,8 @@ module.exports = async (req, res) => {
 
   try {
     const startedAt = Date.now();
-    const maxIterations = 10;
-    const maxMs = 50000;
+    const maxIterations = 4;
+    const maxMs = 45000;
 
     for (let i = 0; i < maxIterations; i += 1) {
       const result = await runUpdateJob({ batchSize });
@@ -90,7 +95,11 @@ module.exports = async (req, res) => {
     }
   } catch (error) {
     ok = false;
-    message = `Erro ao atualizar: ${error && error.message ? error.message : 'desconhecido'}`;
+    if (isQuotaExceededError(error)) {
+      message = 'Google Sheets com limite de leitura por minuto. Aguarde ~1 minuto e tente novamente.';
+    } else {
+      message = `Erro ao atualizar: ${error && error.message ? error.message : 'desconhecido'}`;
+    }
   }
 
   const html = `

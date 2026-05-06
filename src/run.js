@@ -93,6 +93,49 @@ async function ensureSheetExists(sheets, spreadsheetId, title) {
   return created && created.properties ? created.properties.sheetId : null;
 }
 
+function isQuotaExceededError(error) {
+  const msg = String((error && (error.message || error.code || error.status)) || '').toLowerCase();
+  return msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(error && error.status) === '429' || String(error && error.code) === '429';
+}
+
+function isMissingSheetRangeError(error) {
+  const msg = String((error && (error.message || error.code || error.status)) || '').toLowerCase();
+  return msg.includes('unable to parse range') || msg.includes('not found') || msg.includes('bad request');
+}
+
+async function ensureJobStateSheetExists(sheets, spreadsheetId) {
+  try {
+    await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: 'JOB_STATE!A1'
+    });
+    return;
+  } catch (error) {
+    if (isQuotaExceededError(error)) {
+      throw error;
+    }
+
+    if (!isMissingSheetRangeError(error)) {
+      return;
+    }
+  }
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [
+        {
+          addSheet: {
+            properties: {
+              title: 'JOB_STATE'
+            }
+          }
+        }
+      ]
+    }
+  });
+}
+
 async function clearDatabaseData(sheets, spreadsheetId) {
   await sheets.spreadsheets.values.clear({
     spreadsheetId,
@@ -283,35 +326,33 @@ async function processClienteRow(row, indices) {
 }
 
 async function updateWelcomeLastRun(sheets, spreadsheetId, status = 'completed') {
-  const meta = await sheets.spreadsheets.get({
-    spreadsheetId,
-    fields: 'sheets(properties(title))'
-  });
-
-  const targetSheet = (meta.data.sheets || []).find((sheet) => {
-    const title = String(sheet && sheet.properties && sheet.properties.title ? sheet.properties.title : '').trim().toLowerCase();
-    return title === 'bem vindo' || title === 'bem vindo!';
-  });
-
-  if (!targetSheet || !targetSheet.properties || !targetSheet.properties.title) {
-    console.warn('Aba BEM VINDO não encontrada; pulando atualização de J5.');
-    return false;
-  }
-
-  const safeSheetTitle = targetSheet.properties.title.replace(/'/g, "''");
-
   const displayValue = status === 'updating' ? 'Atualizando...' : formatLastUpdatePTBR();
 
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: `'${safeSheetTitle}'!J5`,
-    valueInputOption: 'RAW',
-    requestBody: {
-      values: [[displayValue]]
-    }
-  });
+  const candidateTitles = ['BEM VINDO!', 'BEM VINDO', 'Bem Vindo!', 'Bem Vindo', 'bem vindo!', 'bem vindo'];
 
-  return true;
+  for (const title of candidateTitles) {
+    const safeSheetTitle = String(title).replace(/'/g, "''");
+
+    try {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `'${safeSheetTitle}'!J5`,
+        valueInputOption: 'RAW',
+        requestBody: {
+          values: [[displayValue]]
+        }
+      });
+
+      return true;
+    } catch (error) {
+      if (isQuotaExceededError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  console.warn('Aba BEM VINDO não encontrada; pulando atualização de J5.');
+  return false;
 }
 
 async function run(options = {}) {
@@ -320,7 +361,7 @@ async function run(options = {}) {
 
   const sheets = await getSheets();
 
-  await ensureSheetExists(sheets, process.env.SPREADSHEET_ID, 'JOB_STATE');
+  await ensureJobStateSheetExists(sheets, process.env.SPREADSHEET_ID);
 
   // Mark as "Atualizando..." at the start
   try {
