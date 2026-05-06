@@ -336,7 +336,46 @@ async function run(options = {}) {
 
   await ensureJobStateSheetExists(sheets, process.env.SPREADSHEET_ID);
 
-  // Nota: chamada a atualização automática de 'welcome' removida (legacy)
+  // Helper: atualiza status (texto) em BEM VINDO!J5 e em D2 de todas as abas DASH-*
+  async function updateStatusOnSheets(sheets, spreadsheetId, statusText) {
+    try {
+      const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets(properties(title))' });
+      const sheetsList = (meta.data.sheets || []).map(s => s.properties && s.properties.title).filter(Boolean);
+
+      const updates = [];
+      for (const title of sheetsList) {
+        if (String(title || '').startsWith('DASH-')) {
+          const safe = String(title || '').trim().replace(/'/g, "''");
+          updates.push({ range: `'${safe}'!D2`, values: [[statusText]] });
+        }
+      }
+
+      const welcomeTitle = sheetsList.find(t => /^bem\s*vind/i.test(String(t || '')));
+      if (welcomeTitle) {
+        const safeWelcome = String(welcomeTitle || '').trim().replace(/'/g, "''");
+        updates.push({ range: `'${safeWelcome}'!J5`, values: [[statusText]] });
+      }
+
+      for (const u of updates) {
+        try {
+          await sheets.spreadsheets.values.update({ spreadsheetId, range: u.range, valueInputOption: 'RAW', requestBody: { values: u.values } });
+        } catch (err) {
+          console.warn('Falha ao atualizar status em', u.range, err && err.message ? err.message : err);
+        }
+      }
+    } catch (err) {
+      console.error('Erro em updateStatusOnSheets:', err && err.message ? err.message : err);
+    }
+  }
+
+  // Marca como "Atualizando..." no início (welcome + DASH-*)
+  try {
+    const nowStatus = `Atualizando... — ${formatLastUpdatePTBR()}`;
+    await updateStatusOnSheets(sheets, process.env.SPREADSHEET_ID, nowStatus);
+    console.log('Início da atualização:', nowStatus);
+  } catch (e) {
+    console.warn('Não foi possível marcar como "Atualizando...":', e && e.message ? e.message : e);
+  }
 
   const clientesRes = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SPREADSHEET_ID,
@@ -426,7 +465,15 @@ async function run(options = {}) {
 
   if (!finished) {
     await writeJobCursor(sheets, process.env.SPREADSHEET_ID, nextCursor);
-    console.log(`Lote concluído. Próximo cursor: ${nextCursor}/${totalClientes}`);
+    const batchTime = new Date().toISOString();
+    console.log(`Lote concluído | processed=${batchRows.length} | nextCursor=${nextCursor}/${totalClientes} | time=${batchTime}`);
+    // Atualiza status 'Atualizando...' com timestamp recente para indicar progresso
+    try {
+      const nowStatus = `Atualizando... — ${formatLastUpdatePTBR()}`;
+      await updateStatusOnSheets(sheets, process.env.SPREADSHEET_ID, nowStatus);
+    } catch (e) {
+      console.warn('Falha ao atualizar status pós-lote:', e && e.message ? e.message : e);
+    }
     return { ok: true, processed: batchRows.length, total: totalClientes, cursor, nextCursor, finished: false };
   }
 
