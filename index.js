@@ -37,6 +37,10 @@ module.exports = async (req, res) => {
     return require('./api/update')(req, res);
   }
 
+  if (path === '/api/update-now') {
+    return require('./api/update-now')(req, res);
+  }
+
   if (path === '/api/report') {
     return require('./api/report')(req, res);
   }

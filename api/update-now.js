@@ -1,17 +1,74 @@
 /**
- * UPDATE-NOW endpoint: serves an HTML page that triggers update and auto-closes
- * GET /api/update-now?secret=<token> → returns HTML page that calls /api/cron/update
+ * UPDATE-NOW endpoint:
+ * GET /api/update-now?secret=<token>&batchSize=100
+ * Dispara atualização no servidor e retorna página com auto-close.
  */
 
-module.exports = (req, res) => {
-  const secret = req.query?.secret || req.headers?.['x-cron-secret'] || '';
-  const expectedSecret = process.env.CRON_SECRET || 'default-secret';
+require('dotenv').config({ path: '.env' });
 
-  if (!secret || secret !== expectedSecret) {
-    return res.status(401).json({ ok: false, message: 'Unauthorized' });
+const { runUpdateJob } = require('../src/core/serverlessJobs');
+
+function getQueryValue(urlValue, key) {
+  try {
+    const base = 'https://dash-de-saldos.vercel.app';
+    const url = new URL(String(urlValue || '/'), base);
+    return url.searchParams.get(key) || '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function sendHtml(res, html, statusCode = 200) {
+  if (res && typeof res.status === 'function' && typeof res.send === 'function') {
+    return res.status(statusCode).send(html);
   }
 
-  // HTML page that triggers update and closes itself
+  if (res && typeof res.setHeader === 'function' && typeof res.end === 'function') {
+    res.statusCode = statusCode;
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    res.end(html);
+    return;
+  }
+
+  if (typeof Response !== 'undefined') {
+    return new Response(html, {
+      status: statusCode,
+      headers: { 'content-type': 'text/html; charset=utf-8' }
+    });
+  }
+
+  return { statusCode, body: html };
+}
+
+module.exports = async (req, res) => {
+  const secretFromQuery = req && req.query ? String(req.query.secret || '') : getQueryValue(req && req.url, 'secret');
+  const secretFromHeader = req && req.headers ? String(req.headers['x-cron-secret'] || '') : '';
+  const secret = secretFromQuery || secretFromHeader;
+  const expectedSecret = process.env.CRON_SECRET || '';
+
+  if (!expectedSecret || !secret || secret !== expectedSecret) {
+    return sendHtml(res, '<h1>401 - Unauthorized</h1>', 401);
+  }
+
+  const batchSizeParam = req && req.query ? req.query.batchSize : getQueryValue(req && req.url, 'batchSize');
+  const batchSize = Math.max(1, Number(batchSizeParam || 100));
+
+  let ok = true;
+  let message = 'Atualização concluída com sucesso.';
+
+  try {
+    const result = await runUpdateJob({ batchSize });
+    if (!result || !result.ok) {
+      ok = false;
+      message = 'Atualização retornou status inesperado.';
+    } else if (result.finished === false) {
+      message = 'Atualização iniciada e parcialmente concluída. Próximos lotes seguirão pelo cron.';
+    }
+  } catch (error) {
+    ok = false;
+    message = `Erro ao atualizar: ${error && error.message ? error.message : 'desconhecido'}`;
+  }
+
   const html = `
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -79,45 +136,20 @@ module.exports = (req, res) => {
     <div class="spinner"></div>
     <h1>Atualizando Planilha</h1>
     <div class="status">
-      <p>Sua planilha está sendo atualizada em tempo real.</p>
-      <p>A aba <strong>Última Atualização</strong> mostrará <strong>"Atualizando..."</strong> enquanto o processo estiver em andamento.</p>
-      <p style="margin-top: 10px; font-size: 12px; color: #999;">Esta janela fechará automaticamente quando terminar.</p>
+      <p>${ok ? 'Processo executado.' : 'Falha na execução.'}</p>
+      <p><strong>${message.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</strong></p>
+      <p style="margin-top: 10px; font-size: 12px; color: #999;">Esta janela fechará automaticamente.</p>
     </div>
   </div>
 
   <script>
-    (async function() {
-      try {
-        const secret = '${secret}';
-        
-        // Trigger the update endpoint
-        const response = await fetch('/api/cron/update?batchSize=100', {
-          method: 'GET',
-          headers: {
-            'x-cron-secret': secret
-          }
-        });
-
-        const data = await response.json();
-        console.log('Update response:', data);
-
-        // Wait a moment and close the window
-        setTimeout(() => {
-          window.close();
-        }, 1500);
-      } catch (error) {
-        console.error('Error triggering update:', error);
-        // Still close even if error
-        setTimeout(() => {
-          window.close();
-        }, 3000);
-      }
-    })();
+    setTimeout(() => {
+      window.close();
+    }, ${ok ? 1200 : 2500});
   </script>
 </body>
 </html>
   `;
 
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.status(200).send(html);
+  return sendHtml(res, html, ok ? 200 : 500);
 };
