@@ -108,6 +108,16 @@ async function generateSupervisorAgg(sheets, spreadsheetId) {
               cell: { userEnteredFormat: { textFormat: { bold: true } } },
               fields: 'userEnteredFormat.textFormat.bold'
             }
+          },
+          {
+            autoResizeDimensions: {
+              dimensions: {
+                sheetId,
+                dimension: 'COLUMNS',
+                startIndex: 0,
+                endIndex: HEADERS.length
+              }
+            }
           }
         ]
       }
