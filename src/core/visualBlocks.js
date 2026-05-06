@@ -153,12 +153,12 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
     }
   }
 
-  // Cria/atualiza aba BLOCOS_GESTOR
+  // Cria/atualiza aba SUPERVISOR
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
     requestBody: {
       requests: [{
-        addSheet: { properties: { title: 'BLOCOS_GESTOR' } }
+        addSheet: { properties: { title: 'SUPERVISOR' } }
       }]
     }
   }).catch(() => {});
@@ -268,12 +268,12 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
 
   // Descobrir sheetId
   const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets(properties(sheetId,title))' });
-  const sheet = (meta.data.sheets || []).find(s => s.properties && s.properties.title === 'BLOCOS_GESTOR');
+  const sheet = (meta.data.sheets || []).find(s => s.properties && s.properties.title === 'SUPERVISOR');
   const sheetId = sheet && sheet.properties && sheet.properties.sheetId;
 
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: 'BLOCOS_GESTOR!A1',
+    range: 'SUPERVISOR!A1',
     valueInputOption: 'RAW',
     requestBody: { values }
   });

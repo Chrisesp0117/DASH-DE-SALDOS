@@ -375,7 +375,7 @@ async function run(options = {}) {
 
   const clientesRes = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SPREADSHEET_ID,
-    range: 'Clientes!A1:Z'
+    range: 'CONFIGS!A1:Z'
   });
 
   const clientesValues = clientesRes.data.values || [];
@@ -490,9 +490,9 @@ async function run(options = {}) {
 
   try {
     await generateBlocosPorGestor(sheets, process.env.SPREADSHEET_ID);
-    console.log('BLOCOS_GESTOR atualizado');
+    console.log('SUPERVISOR atualizado');
   } catch (e) {
-    console.error('Erro ao gerar BLOCOS_GESTOR:', e);
+    console.error('Erro ao gerar SUPERVISOR:', e);
   }
 
   try {

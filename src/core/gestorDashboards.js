@@ -53,7 +53,7 @@ async function listGestoresAtivos(sheets, spreadsheetId) {
   try {
     const clientesRes = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'Clientes!A1:Z'
+      range: 'CONFIGS!A1:Z'
     });
 
     const values = clientesRes.data.values || [];
@@ -61,7 +61,7 @@ async function listGestoresAtivos(sheets, spreadsheetId) {
     const gestorIndex = headers.findIndex(h => String(h || '').trim().toLowerCase() === 'gestor');
 
     if (gestorIndex < 0) {
-      console.warn('Coluna Gestor não encontrada na aba Clientes.');
+      console.warn('Coluna Gestor não encontrada na aba CONFIGS.');
       return [];
     }
 
