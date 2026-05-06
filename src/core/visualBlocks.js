@@ -126,12 +126,12 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
   const rows = res.data.values || [];
   const theme = {
     titleBg: { red: 0.08, green: 0.08, blue: 0.08 },
-    googleHeaderBg: { red: 0.10, green: 0.28, blue: 0.62 },
-    metaHeaderBg: { red: 0.12, green: 0.46, blue: 0.20 },
-    googleRowLight: { red: 0.88, green: 0.94, blue: 1 },
-    googleRowDark: { red: 0.78, green: 0.88, blue: 0.98 },
-    metaRowLight: { red: 0.88, green: 0.97, blue: 0.88 },
-    metaRowDark: { red: 0.78, green: 0.92, blue: 0.78 },
+    metaHeaderBg: { red: 0.10, green: 0.28, blue: 0.62 },
+    googleHeaderBg: { red: 0.12, green: 0.46, blue: 0.20 },
+    metaRowLight: { red: 0.88, green: 0.94, blue: 1 },
+    metaRowDark: { red: 0.78, green: 0.88, blue: 0.98 },
+    googleRowLight: { red: 0.88, green: 0.97, blue: 0.88 },
+    googleRowDark: { red: 0.78, green: 0.92, blue: 0.78 },
     // Critical low-saldo highlight
     rowCritical: { red: 1, green: 0.9, blue: 0.9 },
     separator: { red: 0.78, green: 0.78, blue: 0.78 },
