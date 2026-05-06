@@ -5,6 +5,7 @@ const { getGoogleData } = require('./services/googleAds');
 const { getMetaData } = require('./services/meta');
 const { buildRow } = require('./core/calculator');
 const { generateBlocosPorGestor } = require('./core/visualBlocks');
+const { ensureDashboardsForAllGestores } = require('./core/gestorDashboards');
 
 const DATABASE_HEADERS = [
   'Data', 'Cliente', 'Plataforma', 'Saldo', 'Gasto 7d', 'Média/dia', 'Dias restantes',
@@ -492,6 +493,17 @@ async function run(options = {}) {
     console.log('BLOCOS_GESTOR atualizado');
   } catch (e) {
     console.error('Erro ao gerar BLOCOS_GESTOR:', e);
+  }
+
+  try {
+    const dashResult = await ensureDashboardsForAllGestores(sheets, process.env.SPREADSHEET_ID);
+    if (dashResult.ok) {
+      console.log(`📊 Dashboards de gestor verificados: ${dashResult.totalGestores} gestor(es), ${dashResult.resultados.filter(r => r.status === 'criada').length} nova(s) aba(s) criada(s)`);
+    } else {
+      console.warn('Erro ao garantir dashboards de gestor:', dashResult.error);
+    }
+  } catch (e) {
+    console.error('Erro ao assegurar dashboards de gestor:', e);
   }
 
   console.log('DATABASE atualizada');
