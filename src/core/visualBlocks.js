@@ -133,7 +133,7 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
     googleRowLight: { red: 0.88, green: 0.97, blue: 0.88 },
     googleRowDark: { red: 0.78, green: 0.92, blue: 0.78 },
     // Critical low-saldo highlight
-    rowCritical: { red: 1, green: 0.9, blue: 0.9 },
+    rowCritical: { red: 0.82, green: 0.18, blue: 0.18 },
     separator: { red: 0.78, green: 0.78, blue: 0.78 },
     border: { red: 0.55, green: 0.55, blue: 0.55 },
     textDark: { red: 0, green: 0, blue: 0 },
