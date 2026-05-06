@@ -505,6 +505,12 @@ async function run(options = {}) {
   }
 
   try {
+    await updateWelcomeSheet(sheets, process.env.SPREADSHEET_ID);
+  } catch (e) {
+    console.warn('Não foi possível atualizar o texto de boas-vindas em BEM VINDO:', e.message || e);
+  }
+
+  try {
     await applyDatabaseFormatting(sheets, process.env.SPREADSHEET_ID, totalClientes);
   } catch (e) {
     console.error('Erro ao formatar DATABASE:', e);
