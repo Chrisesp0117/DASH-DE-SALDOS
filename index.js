@@ -34,7 +34,8 @@ module.exports = async (req, res) => {
   }
 
   if (path === '/api/update') {
-    return require('./api/update')(req, res);
+    // `api/update` foi removido; redireciona para `api/update-now`
+    return require('./api/update-now')(req, res);
   }
 
   if (path === '/api/update-now') {
