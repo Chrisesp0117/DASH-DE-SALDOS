@@ -424,7 +424,7 @@ async function updateWelcomeSheet(sheets, spreadsheetId) {
     'Precisa de uma versão mais curta/visual para impressão? Posso gerar uma versão resumida ou um PDF com instruções.'
   ];
 
-  const rows = contentLines.map(line => [line]);
+  const content = contentLines.join('\n');
 
   for (const title of candidateTitles) {
     const safe = String(title).replace(/'/g, "''");
@@ -433,7 +433,7 @@ async function updateWelcomeSheet(sheets, spreadsheetId) {
         spreadsheetId,
         range: `'${safe}'!A1`,
         valueInputOption: 'RAW',
-        requestBody: { values: rows }
+        requestBody: { values: [[content]] }
       });
       return true;
     } catch (err) {
