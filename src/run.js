@@ -362,70 +362,69 @@ async function updateWelcomeSheet(sheets, spreadsheetId) {
   const candidateTitles = ['BEM VINDO!', 'BEM VINDO', 'Bem Vindo!', 'Bem Vindo', 'bem vindo!', 'bem vindo'];
   const last = formatLastUpdatePTBR();
 
-  const content = `📊 Dashboard Financeiro de Saldos
+  const contentLines = [
+    '📊 Dashboard Financeiro de Saldos',
+    '',
+    'Visão geral',
+    '',
+    'Este painel centraliza o monitoramento financeiro das contas de publicidade (Google Ads e Meta).',
+    'Ele atualiza saldos, calcula o gasto do dia anterior e estima quantos dias o saldo atual ainda irá durar.',
+    '',
+    'Objetivo deste texto',
+    '',
+    'Explicar, passo a passo, tudo que um usuário novo precisa saber para usar a planilha sem suporte.',
+    '',
+    'Como usar — passo a passo',
+    '1) Cadastro de contas',
+    '   - Abra a aba "Clientes" e insira cada conta com: Cliente, Plataforma (GOOGLE/META), CustomerID/AccountID, Gestor e Revisão.',
+    '   - Marque "Ok" na coluna Revisão para habilitar o monitoramento dessa conta. Qualquer outro valor será ignorado.',
+    '2) Atualizações automáticas e manuais',
+    '   - O painel é atualizado automaticamente conforme a agenda configurada.',
+    '   - Para forçar uma atualização manual, use o bot de Telegram (comandos abaixo) ou acione POST /api/update-now com o segredo configurado.',
+    '3) Onde ver os resultados',
+    '   - DATABASE: histórico completo com data, cliente, plataforma, saldo, gasto ontem, dias restantes, gestor, supervisor, status e observações.',
+    '   - SUPERVISOR: blocos por gestor e plataforma, com destaque visual entre Google (verde) e Meta (azul).',
+    '   - DASH-{Gestor}: painel individual para cada gestor. IMPORTANTE: apenas colunas A:D são atualizadas automaticamente; colunas E em diante são preservadas para anotações e ações manuais.',
+    '',
+    'Abas e campos explicados (detalhado)',
+    '- Clientes: cadastro mestre.',
+    '  Campos essenciais: Cliente (nome), Plataforma (GOOGLE/META), CustomerID (Google, 10 dígitos) ou AccountID (Meta), Gestor, Revisão (Ok/A revisar), Supervisor (opcional).',
+    '- DATABASE: log de todas as coletas.',
+    '  Colunas mais importantes:',
+    '  - Data: ISO timestamp da coleta',
+    '  - Cliente: nome da conta',
+    '  - Plataforma: GOOGLE ou META',
+    '  - Saldo: valor formatado em moeda',
+    '  - Gasto Ontem: gasto do dia anterior',
+    '  - Dias restantes: estimativa de quantos dias o saldo dura',
+    '  - Gestor / Supervisor: responsáveis',
+    '  - Status: Atualizada ou Erro',
+    '',
+    'Regras visuais e alertas',
+    '- Contas críticas (saldo estimado ≤ 7 dias): linha com fundo vermelho pastel e texto em branco — atenção prioritária.',
+    '- Linhas com erro de consulta ficam marcadas em Status = Erro; verifique dados ou credenciais.',
+    '',
+    'Comandos e integrações',
+    '- Telegram: /atualizar (força atualização), /exam (relatório resumido), /help (lista de comandos).',
+    '- API: POST /api/update-now (use com token/segredo apropriado).',
+    '',
+    'Boas práticas ao compartilhar a planilha',
+    '1) Conceda permissão de edição somente para quem precisa alterar a aba Clientes.',
+    '2) Instrua gestores a não alterar colunas A:D das abas DASH-{Gestor} — essas colunas são gerenciadas automaticamente.',
+    '3) Use DATABASE para auditoria; não apague linhas históricas.',
+    '',
+    'Problemas comuns e solução rápida',
+    '- Status Erro: confirme o CustomerID/AccountID, o campo Revisão e se as credenciais de API estão ativas.',
+    '- Limite de API (429): o sistema lida com retry/backoff; se ocorrer com frequência, reduza a cadência ou revise quotas.',
+    '',
+    'Informações técnicas úteis',
+    '- Fuso das marcas: America/Manaus (horário de Manaus).',
+    `- Última atualização automática: ${last}`,
+    '',
+    'Precisa de uma versão mais curta/visual para impressão? Posso gerar uma versão resumida ou um PDF com instruções.'
+  ];
 
-Visão geral
-
-Este painel centraliza o monitoramento financeiro das contas de publicidade (Google Ads e Meta).
-Ele atualiza saldos, calcula o gasto do dia anterior e estima quantos dias o saldo atual ainda irá durar.
-
-Objetivo deste texto
-
-Explicar, passo a passo, tudo que um usuário novo precisa saber para usar a planilha sem suporte.
-
-Como usar — passo a passo
-1) Cadastro de contas
-   - Abra a aba "Clientes" e insira cada conta com: Cliente, Plataforma (GOOGLE/META), CustomerID/AccountID, Gestor e Revisão.
-   - Marque "Ok" na coluna Revisão para habilitar o monitoramento dessa conta. Qualquer outro valor será ignorado.
-2) Atualizações automáticas e manuais
-   - O painel é atualizado automaticamente conforme a agenda configurada.
-   - Para forçar uma atualização manual, use o bot de Telegram (comandos abaixo) ou acione `POST /api/update-now` com o segredo configurado.
-3) Onde ver os resultados
-   - `DATABASE`: histórico completo com data, cliente, plataforma, saldo, gasto ontem, dias restantes, gestor, supervisor, status e observações.
-   - `SUPERVISOR`: blocos por gestor e plataforma, com destaque visual entre Google (verde) e Meta (azul).
-   - `DASH-{Gestor}`: painel individual para cada gestor. IMPORTANTE: apenas colunas A:D são atualizadas automaticamente; colunas E em diante são preservadas para anotações e ações manuais.
-
-Abas e campos explicados (detalhado)
-- `Clientes`: cadastro mestre.
-  Campos essenciais: Cliente (nome), Plataforma (GOOGLE/META), CustomerID (Google, 10 dígitos) ou AccountID (Meta), Gestor, Revisão (Ok/A revisar), Supervisor (opcional).
-- `DATABASE`: log de todas as coletas.
-  Colunas mais importantes:
-  - Data: ISO timestamp da coleta
-  - Cliente: nome da conta
-  - Plataforma: GOOGLE ou META
-  - Saldo: valor formatado em moeda
-  - Gasto Ontem: gasto do dia anterior
-  - Dias restantes: estimativa de quantos dias o saldo dura
-  - Gestor / Supervisor: responsáveis
-  - Status: "Atualizada" ou "Erro"
-
-Regras visuais e alertas
-- Contas críticas (saldo estimado ≤ 7 dias): linha com fundo vermelho pastel e texto em branco — atenção prioritária.
-- Linhas com erro de consulta ficam marcadas em Status = "Erro"; verifique dados ou credenciais.
-
-Comandos e integrações
-- Telegram: `/atualizar` (força atualização), `/exam` (relatório resumido), `/help` (lista de comandos).
-- API: `POST /api/update-now` (use com token/segredo apropriado).
-
-Boas práticas ao compartilhar a planilha
-1) Conceda permissão de edição somente para quem precisa alterar a aba `Clientes`.
-2) Instrua gestores a não alterar colunas A:D das abas `DASH-{Gestor}` — essas colunas são gerenciadas automaticamente.
-3) Use `DATABASE` para auditoria; não apague linhas históricas.
-
-Problemas comuns e solução rápida
-- Status "Erro": confirme o CustomerID/AccountID, o campo Revisão e se as credenciais de API estão ativas.
-- Limite de API (429): o sistema lida com retry/backoff; se ocorrer com frequência, reduza a cadência ou revise quotas.
-
-Informações técnicas úteis
-- Fuso das marcas: America/Manaus (horário de Manaus).
-- Última atualização automática: ${last}
-
-Precisa de uma versão mais curta/visual para impressão? Posso gerar uma versão resumida ou um PDF com instruções.`;
-
-
-Esse continua sendo o texto`;
-
-  const rows = content.split('\n').map(line => [line]);
+  const rows = contentLines.map(line => [line]);
 
   for (const title of candidateTitles) {
     const safe = String(title).replace(/'/g, "''");
