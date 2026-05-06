@@ -108,8 +108,7 @@ async function duplicateReferenceSheet(sheets, spreadsheetId, gestor) {
         {
           duplicateSheet: {
             sourceSheetId,
-            newSheetName: newSheetTitle,
-            insertSheetIndex: sheetList.length + 1
+            newSheetName: newSheetTitle
           }
         }
       ]
