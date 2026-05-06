@@ -362,12 +362,74 @@ async function updateWelcomeSheet(sheets, spreadsheetId) {
   const candidateTitles = ['BEM VINDO!', 'BEM VINDO', 'Bem Vindo!', 'Bem Vindo', 'bem vindo!', 'bem vindo'];
   const last = formatLastUpdatePTBR();
 
-  const lines = [
-    `Olá! Bem-vindo ao Painel de Saldos.`,
-    `Este painel mostra Saldos, Duração estimada e Gasto de ontem por cliente.`,
-    `Use as colunas à direita para suas anotações e ações. Linhas em vermelho indicam contas com < 7 dias de saldo (prioridade).`,
-    `Última atualização: ${last}`
-  ];
+  const content = `📊 Dashboard Financeiro de Saldos
+Bem-vindo ao seu painel de controle financeiro! Esta planilha monitora em tempo real os saldos e gastos de todas as suas contas de publicidade.
+
+🎯 Funcionalidades Principais
+
+1. Monitoramento de Saldos
+
+- Acompanha o saldo disponível em cada conta (Google Ads e Meta)
+- Identifica automaticamente contas com saldo baixo (≤ 7 dias)
+- Mostra a duração estimada de cada conta em dias e horas
+
+2. Gestão por Gestor
+
+- Cada gestor visualiza suas contas organizadas por plataforma
+- Comparação lado a lado entre Google Ads e Meta
+- Identificação de contas cartão (sem limite de gasto)
+
+3. Alertas Automáticos
+
+- A planilha se atualiza automaticamente a cada 2 horas
+- Relatórios automáticos às 8h e 17h todos os dias
+- Destaque em vermelho pastel para contas críticas
+- Notificações via Telegram (@seu_bot)
+
+4. Controle de Atualização
+
+- Use /atualizar no Telegram para forçar atualização manual
+- Use /exam para ver o relatório atual
+- Use /help para ver todos os comandos
+
+📋 Abas da Planilha
+
+- Clientes: Cadastro de contas com gestor e status de revisão
+- Database: Registro histórico com saldo, gasto e status
+-Blocos Gestor: Visualização organizada por gestor
+
+⚙️ Dica
+Marque as contas como "Ok" na coluna Revisão para ativar o monitoramento. Contas marcadas como "A revisar" serão ignoradas.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esse continua sendo o texto`;
+
+  const rows = content.split('\n').map(line => [line]);
 
   for (const title of candidateTitles) {
     const safe = String(title).replace(/'/g, "''");
@@ -376,7 +438,7 @@ async function updateWelcomeSheet(sheets, spreadsheetId) {
         spreadsheetId,
         range: `'${safe}'!A1`,
         valueInputOption: 'RAW',
-        requestBody: { values: [lines] }
+        requestBody: { values: rows }
       });
       return true;
     } catch (err) {
