@@ -358,6 +358,37 @@ async function updateWelcomeLastRun(sheets, spreadsheetId, status = 'completed')
   return false;
 }
 
+async function updateWelcomeSheet(sheets, spreadsheetId) {
+  const candidateTitles = ['BEM VINDO!', 'BEM VINDO', 'Bem Vindo!', 'Bem Vindo', 'bem vindo!', 'bem vindo'];
+  const last = formatLastUpdatePTBR();
+
+  const lines = [
+    `Olá! Bem-vindo ao Painel de Saldos.`,
+    `Este painel mostra Saldos, Duração estimada e Gasto de ontem por cliente.`,
+    `Use as colunas à direita para suas anotações e ações. Linhas em vermelho indicam contas com < 7 dias de saldo (prioridade).`,
+    `Última atualização: ${last}`
+  ];
+
+  for (const title of candidateTitles) {
+    const safe = String(title).replace(/'/g, "''");
+    try {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `'${safe}'!A1`,
+        valueInputOption: 'RAW',
+        requestBody: { values: [lines] }
+      });
+      return true;
+    } catch (err) {
+      if (isQuotaExceededError(err)) throw err;
+      // try next candidate
+    }
+  }
+
+  console.warn('Aba BEM VINDO não encontrada; pulando atualização de boas-vindas.');
+  return false;
+}
+
 async function run(options = {}) {
   const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
   const batchSize = Math.max(1, Number(options.batchSize || process.env.UPDATE_BATCH_SIZE || 1));
