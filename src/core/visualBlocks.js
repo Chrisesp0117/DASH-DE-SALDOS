@@ -126,10 +126,13 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
   const rows = res.data.values || [];
   const theme = {
     titleBg: { red: 0.08, green: 0.08, blue: 0.08 },
-    headerBg: { red: 0.22, green: 0.22, blue: 0.22 },
-    rowLight: { red: 0.98, green: 0.98, blue: 0.98 },
-    rowDark: { red: 0.9, green: 0.9, blue: 0.9 },
-    // Pastel red for critical low-saldo highlight
+    googleHeaderBg: { red: 0.10, green: 0.28, blue: 0.62 },
+    metaHeaderBg: { red: 0.12, green: 0.46, blue: 0.20 },
+    googleRowLight: { red: 0.88, green: 0.94, blue: 1 },
+    googleRowDark: { red: 0.78, green: 0.88, blue: 0.98 },
+    metaRowLight: { red: 0.88, green: 0.97, blue: 0.88 },
+    metaRowDark: { red: 0.78, green: 0.92, blue: 0.78 },
+    // Critical low-saldo highlight
     rowCritical: { red: 1, green: 0.9, blue: 0.9 },
     separator: { red: 0.78, green: 0.78, blue: 0.78 },
     border: { red: 0.55, green: 0.55, blue: 0.55 },
@@ -180,13 +183,22 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
     rowIdx++;
     // Cabeçalho
     values.push(['Cliente (Google)', 'Saldo', 'Gasto Médio', 'Duração', '', 'Cliente (Meta)', 'Saldo', 'Gasto Médio', 'Duração']);
-    formatRequests.push({
-      repeatCell: {
-        range: { sheetId: null, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 0, endColumnIndex: 9 },
-        cell: { userEnteredFormat: { backgroundColor: theme.headerBg, textFormat: { bold: true, foregroundColor: theme.textLight } } },
-        fields: 'userEnteredFormat(backgroundColor,textFormat.bold,textFormat.foregroundColor)'
+    formatRequests.push(
+      {
+        repeatCell: {
+          range: { sheetId: null, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 0, endColumnIndex: 4 },
+          cell: { userEnteredFormat: { backgroundColor: theme.googleHeaderBg, textFormat: { bold: true, foregroundColor: theme.textLight } } },
+          fields: 'userEnteredFormat(backgroundColor,textFormat.bold,textFormat.foregroundColor)'
+        }
+      },
+      {
+        repeatCell: {
+          range: { sheetId: null, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 5, endColumnIndex: 9 },
+          cell: { userEnteredFormat: { backgroundColor: theme.metaHeaderBg, textFormat: { bold: true, foregroundColor: theme.textLight } } },
+          fields: 'userEnteredFormat(backgroundColor,textFormat.bold,textFormat.foregroundColor)'
+        }
       }
-    });
+    );
     rowIdx++;
     // Dados com cores alternadas e bordas
     const maxLen = Math.max(plataformas.GOOGLE.length, plataformas.META.length);
@@ -204,10 +216,9 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
         const diasNum = Number((diasStr + '').split(' ')[0].replace(/\D/g, ''));
         return diasNum <= 7;
       }
-      // Cores base
-      const baseColor = (i % 2 === 0)
-        ? theme.rowLight
-        : { red: 1, green: 1, blue: 1 };
+      // Cores base por plataforma
+      const googleBaseColor = (i % 2 === 0) ? theme.googleRowLight : theme.googleRowDark;
+      const metaBaseColor = (i % 2 === 0) ? theme.metaRowLight : theme.metaRowDark;
       // Bordas padrão
       const borders = {
         top: { style: 'SOLID', color: theme.border },
@@ -228,7 +239,7 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
         formatRequests.push({
           repeatCell: {
             range: { sheetId: null, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 0, endColumnIndex: 4 },
-            cell: { userEnteredFormat: { backgroundColor: baseColor, borders } },
+            cell: { userEnteredFormat: { backgroundColor: googleBaseColor, borders } },
             fields: 'userEnteredFormat(backgroundColor,borders)'
           }
         });
@@ -246,7 +257,7 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
         formatRequests.push({
           repeatCell: {
             range: { sheetId: null, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 5, endColumnIndex: 9 },
-            cell: { userEnteredFormat: { backgroundColor: baseColor, borders } },
+            cell: { userEnteredFormat: { backgroundColor: metaBaseColor, borders } },
             fields: 'userEnteredFormat(backgroundColor,borders)'
           }
         });
