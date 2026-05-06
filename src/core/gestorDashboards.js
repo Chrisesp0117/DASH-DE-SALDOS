@@ -327,10 +327,10 @@ async function applyDashboardFormatting(sheets, spreadsheetId, sheetId, metaRows
         left: gridBorder,
         right: gridBorder
       },
-      textFormat: { foregroundColor: { red: 0, green: 0, blue: 0 } }
+      textFormat: { foregroundColor: { red: 0, green: 0, blue: 0 }, bold: false }
     };
 
-    const fields = 'userEnteredFormat(backgroundColor,borders,textFormat.foregroundColor)';
+    const fields = 'userEnteredFormat(backgroundColor,borders,textFormat.foregroundColor,textFormat.bold)';
     if (row.critical) {
       format.textFormat = { bold: true, foregroundColor: rowCriticalText };
     }
@@ -371,10 +371,10 @@ async function applyDashboardFormatting(sheets, spreadsheetId, sheetId, metaRows
         left: gridBorder,
         right: gridBorder
       },
-      textFormat: { foregroundColor: { red: 0, green: 0, blue: 0 } }
+      textFormat: { foregroundColor: { red: 0, green: 0, blue: 0 }, bold: false }
     };
 
-    const fields = 'userEnteredFormat(backgroundColor,borders,textFormat.foregroundColor)';
+    const fields = 'userEnteredFormat(backgroundColor,borders,textFormat.foregroundColor,textFormat.bold)';
     if (row.critical) {
       format.textFormat = { bold: true, foregroundColor: rowCriticalText };
     }
