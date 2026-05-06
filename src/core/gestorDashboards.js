@@ -326,10 +326,11 @@ async function applyDashboardFormatting(sheets, spreadsheetId, sheetId, metaRows
         bottom: gridBorder,
         left: gridBorder,
         right: gridBorder
-      }
+      },
+      textFormat: { foregroundColor: { red: 0, green: 0, blue: 0 } }
     };
 
-    const fields = 'userEnteredFormat(backgroundColor,borders)';
+    const fields = 'userEnteredFormat(backgroundColor,borders,textFormat.foregroundColor)';
     if (row.critical) {
       format.textFormat = { bold: true, foregroundColor: rowCriticalText };
     }
@@ -369,10 +370,11 @@ async function applyDashboardFormatting(sheets, spreadsheetId, sheetId, metaRows
         bottom: gridBorder,
         left: gridBorder,
         right: gridBorder
-      }
+      },
+      textFormat: { foregroundColor: { red: 0, green: 0, blue: 0 } }
     };
 
-    const fields = 'userEnteredFormat(backgroundColor,borders)';
+    const fields = 'userEnteredFormat(backgroundColor,borders,textFormat.foregroundColor)';
     if (row.critical) {
       format.textFormat = { bold: true, foregroundColor: rowCriticalText };
     }

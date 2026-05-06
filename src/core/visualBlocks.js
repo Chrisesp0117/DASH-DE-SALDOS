@@ -231,7 +231,7 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
         formatRequests.push({
           repeatCell: {
             range: { sheetId: null, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 0, endColumnIndex: 4 },
-            cell: { userEnteredFormat: { backgroundColor: theme.rowCritical, borders, textFormat: { foregroundColor: theme.textDark, bold: true } } },
+            cell: { userEnteredFormat: { backgroundColor: theme.rowCritical, borders, textFormat: { foregroundColor: theme.textLight, bold: true } } },
             fields: 'userEnteredFormat(backgroundColor,borders,textFormat.foregroundColor,textFormat.bold)'
           }
         });
@@ -239,8 +239,8 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
         formatRequests.push({
           repeatCell: {
             range: { sheetId: null, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 0, endColumnIndex: 4 },
-            cell: { userEnteredFormat: { backgroundColor: googleBaseColor, borders } },
-            fields: 'userEnteredFormat(backgroundColor,borders)'
+            cell: { userEnteredFormat: { backgroundColor: googleBaseColor, borders, textFormat: { foregroundColor: theme.textDark } } },
+            fields: 'userEnteredFormat(backgroundColor,borders,textFormat.foregroundColor)'
           }
         });
       }
@@ -249,7 +249,7 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
         formatRequests.push({
           repeatCell: {
             range: { sheetId: null, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 5, endColumnIndex: 9 },
-            cell: { userEnteredFormat: { backgroundColor: theme.rowCritical, borders, textFormat: { foregroundColor: theme.textDark, bold: true } } },
+            cell: { userEnteredFormat: { backgroundColor: theme.rowCritical, borders, textFormat: { foregroundColor: theme.textLight, bold: true } } },
             fields: 'userEnteredFormat(backgroundColor,borders,textFormat.foregroundColor,textFormat.bold)'
           }
         });
@@ -257,8 +257,8 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
         formatRequests.push({
           repeatCell: {
             range: { sheetId: null, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 5, endColumnIndex: 9 },
-            cell: { userEnteredFormat: { backgroundColor: metaBaseColor, borders } },
-            fields: 'userEnteredFormat(backgroundColor,borders)'
+            cell: { userEnteredFormat: { backgroundColor: metaBaseColor, borders, textFormat: { foregroundColor: theme.textDark } } },
+            fields: 'userEnteredFormat(backgroundColor,borders,textFormat.foregroundColor)'
           }
         });
       }
