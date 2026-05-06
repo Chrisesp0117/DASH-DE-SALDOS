@@ -363,68 +363,64 @@ async function updateWelcomeSheet(sheets, spreadsheetId) {
   const last = formatLastUpdatePTBR();
 
   const content = `📊 Dashboard Financeiro de Saldos
-Bem-vindo ao seu painel de controle financeiro! Esta planilha monitora em tempo real os saldos e gastos de todas as suas contas de publicidade.
 
-🎯 Funcionalidades Principais
+Visão geral
 
-1. Monitoramento de Saldos
+Este painel centraliza o monitoramento financeiro das contas de publicidade (Google Ads e Meta).
+Ele atualiza saldos, calcula o gasto do dia anterior e estima quantos dias o saldo atual ainda irá durar.
 
-- Acompanha o saldo disponível em cada conta (Google Ads e Meta)
-- Identifica automaticamente contas com saldo baixo (≤ 7 dias)
-- Mostra a duração estimada de cada conta em dias e horas
+Objetivo deste texto
 
-2. Gestão por Gestor
+Explicar, passo a passo, tudo que um usuário novo precisa saber para usar a planilha sem suporte.
 
-- Cada gestor visualiza suas contas organizadas por plataforma
-- Comparação lado a lado entre Google Ads e Meta
-- Identificação de contas cartão (sem limite de gasto)
+Como usar — passo a passo
+1) Cadastro de contas
+   - Abra a aba "Clientes" e insira cada conta com: Cliente, Plataforma (GOOGLE/META), CustomerID/AccountID, Gestor e Revisão.
+   - Marque "Ok" na coluna Revisão para habilitar o monitoramento dessa conta. Qualquer outro valor será ignorado.
+2) Atualizações automáticas e manuais
+   - O painel é atualizado automaticamente conforme a agenda configurada.
+   - Para forçar uma atualização manual, use o bot de Telegram (comandos abaixo) ou acione `POST /api/update-now` com o segredo configurado.
+3) Onde ver os resultados
+   - `DATABASE`: histórico completo com data, cliente, plataforma, saldo, gasto ontem, dias restantes, gestor, supervisor, status e observações.
+   - `SUPERVISOR`: blocos por gestor e plataforma, com destaque visual entre Google (verde) e Meta (azul).
+   - `DASH-{Gestor}`: painel individual para cada gestor. IMPORTANTE: apenas colunas A:D são atualizadas automaticamente; colunas E em diante são preservadas para anotações e ações manuais.
 
-3. Alertas Automáticos
+Abas e campos explicados (detalhado)
+- `Clientes`: cadastro mestre.
+  Campos essenciais: Cliente (nome), Plataforma (GOOGLE/META), CustomerID (Google, 10 dígitos) ou AccountID (Meta), Gestor, Revisão (Ok/A revisar), Supervisor (opcional).
+- `DATABASE`: log de todas as coletas.
+  Colunas mais importantes:
+  - Data: ISO timestamp da coleta
+  - Cliente: nome da conta
+  - Plataforma: GOOGLE ou META
+  - Saldo: valor formatado em moeda
+  - Gasto Ontem: gasto do dia anterior
+  - Dias restantes: estimativa de quantos dias o saldo dura
+  - Gestor / Supervisor: responsáveis
+  - Status: "Atualizada" ou "Erro"
 
-- A planilha se atualiza automaticamente a cada 2 horas
-- Relatórios automáticos às 8h e 17h todos os dias
-- Destaque em vermelho pastel para contas críticas
-- Notificações via Telegram (@seu_bot)
+Regras visuais e alertas
+- Contas críticas (saldo estimado ≤ 7 dias): linha com fundo vermelho pastel e texto em branco — atenção prioritária.
+- Linhas com erro de consulta ficam marcadas em Status = "Erro"; verifique dados ou credenciais.
 
-4. Controle de Atualização
+Comandos e integrações
+- Telegram: `/atualizar` (força atualização), `/exam` (relatório resumido), `/help` (lista de comandos).
+- API: `POST /api/update-now` (use com token/segredo apropriado).
 
-- Use /atualizar no Telegram para forçar atualização manual
-- Use /exam para ver o relatório atual
-- Use /help para ver todos os comandos
+Boas práticas ao compartilhar a planilha
+1) Conceda permissão de edição somente para quem precisa alterar a aba `Clientes`.
+2) Instrua gestores a não alterar colunas A:D das abas `DASH-{Gestor}` — essas colunas são gerenciadas automaticamente.
+3) Use `DATABASE` para auditoria; não apague linhas históricas.
 
-📋 Abas da Planilha
+Problemas comuns e solução rápida
+- Status "Erro": confirme o CustomerID/AccountID, o campo Revisão e se as credenciais de API estão ativas.
+- Limite de API (429): o sistema lida com retry/backoff; se ocorrer com frequência, reduza a cadência ou revise quotas.
 
-- Clientes: Cadastro de contas com gestor e status de revisão
-- Database: Registro histórico com saldo, gasto e status
--Blocos Gestor: Visualização organizada por gestor
+Informações técnicas úteis
+- Fuso das marcas: America/Manaus (horário de Manaus).
+- Última atualização automática: ${last}
 
-⚙️ Dica
-Marque as contas como "Ok" na coluna Revisão para ativar o monitoramento. Contas marcadas como "A revisar" serão ignoradas.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+Precisa de uma versão mais curta/visual para impressão? Posso gerar uma versão resumida ou um PDF com instruções.`;
 
 
 Esse continua sendo o texto`;
