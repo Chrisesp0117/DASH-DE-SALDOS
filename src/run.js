@@ -498,7 +498,9 @@ async function run(options = {}) {
   try {
     const dashResult = await ensureDashboardsForAllGestores(sheets, process.env.SPREADSHEET_ID);
     if (dashResult.ok) {
-      console.log(`📊 Dashboards de gestor verificados: ${dashResult.totalGestores} gestor(es), ${dashResult.resultados.filter(r => r.status === 'criada').length} nova(s) aba(s) criada(s)`);
+      const criadas = dashResult.resultados.filter(r => r.status === 'criada').length;
+      const recriadas = dashResult.resultados.filter(r => r.status === 'recriada').length;
+      console.log(`📊 Dashboards de gestor gerados: ${dashResult.totalGestores} gestor(es), ${criadas} nova(s) e ${recriadas} recriada(s)`);
     } else {
       console.warn('Erro ao garantir dashboards de gestor:', dashResult.error);
     }
