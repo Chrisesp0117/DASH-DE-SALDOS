@@ -336,12 +336,7 @@ async function run(options = {}) {
 
   await ensureJobStateSheetExists(sheets, process.env.SPREADSHEET_ID);
 
-  // Mark as "Atualizando..." at the start
-  try {
-    await updateWelcomeLastRun(sheets, process.env.SPREADSHEET_ID, 'updating');
-  } catch (e) {
-    console.warn('Não foi possível marcar como "Atualizando...":', e.message || e);
-  }
+  // Nota: chamada a atualização automática de 'welcome' removida (legacy)
 
   const clientesRes = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SPREADSHEET_ID,
