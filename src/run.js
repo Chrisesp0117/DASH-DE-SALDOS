@@ -487,9 +487,11 @@ async function run(options = {}) {
         }
       }
 
-      // Atualiza BEM VINDO caso exista
-      if (sheetsList.includes('BEM VINDO')) {
-        updates.push({ range: 'BEM VINDO!A2', values: [[nowFmt]] });
+      // Atualiza a aba de boas-vindas caso exista (aceita variações: BEM VINDO / BEM VINDOS)
+      const welcomeTitle = sheetsList.find(t => /^bem\s*vind/i.test(String(t || '')));
+      if (welcomeTitle) {
+        const safeWelcome = await sanitizeTitleForRange(welcomeTitle);
+        updates.push({ range: `'${safeWelcome}'!J5`, values: [[nowFmt]] });
       }
 
       for (const u of updates) {
