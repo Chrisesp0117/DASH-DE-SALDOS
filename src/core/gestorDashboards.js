@@ -145,14 +145,14 @@ function buildDashboardValues(gestor, metaRows, googleRows) {
   pushRow([`Seja Bem Vindo ${gestor}!`, '', '', 'Última Atualização:']);
   pushRow(['', '', '', formatLastUpdatePTBR()]);
   pushRow(['', '', '', '']);
-  pushRow(['Cliente (Meta)', 'Saldo', 'Gasto Médio', 'Duração']);
+  pushRow(['Cliente (Meta)', 'Saldo', 'Gasto Ontem', 'Duração']);
 
   for (const item of metaRows) {
     pushRow([item.cliente, item.saldo, item.gastoMedio, item.duracao]);
   }
 
   pushRow(['', '', '', '']);
-  pushRow(['Cliente (Google)', 'Saldo', 'Gasto Médio', 'Duração']);
+  pushRow(['Cliente (Google)', 'Saldo', 'Gasto Ontem', 'Duração']);
 
   for (const item of googleRows) {
     pushRow([item.cliente, item.saldo, item.gastoMedio, item.duracao]);

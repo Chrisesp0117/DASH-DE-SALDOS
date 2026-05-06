@@ -28,8 +28,10 @@ function buildRow(cliente, plataforma, data) {
     saldoFormatado: isMetaCard
       ? '💳 CARTÃO'
       : formatCurrencyBRL(data.saldo),
-    gasto7d: Number(data.gasto7d),
-    gasto7dFormatado: formatCurrencyBRL(data.gasto7d),
+    gastoOntem: Number(data.gastoOntem ?? data.gasto7d),
+    gastoOntemFormatado: formatCurrencyBRL(data.gastoOntem ?? data.gasto7d),
+    gasto7d: Number(data.gastoOntem ?? data.gasto7d),
+    gasto7dFormatado: formatCurrencyBRL(data.gastoOntem ?? data.gasto7d),
     media: Number(data.media),
     mediaFormatado: formatCurrencyBRL(data.media),
     dias: Number(data.dias),

@@ -8,7 +8,7 @@ const { generateBlocosPorGestor } = require('./core/visualBlocks');
 const { ensureDashboardsForAllGestores } = require('./core/gestorDashboards');
 
 const DATABASE_HEADERS = [
-  'Data', 'Cliente', 'Plataforma', 'Saldo', 'Gasto 7d', 'Média/dia', 'Dias restantes',
+  'Data', 'Cliente', 'Plataforma', 'Saldo', 'Gasto Ontem', 'Gasto Ontem', 'Dias restantes',
   'Gestor', 'Supervisor', 'Status', 'Obs', 'DataISO', 'Identificador'
 ];
 
@@ -316,7 +316,7 @@ async function processClienteRow(row, indices) {
     cliente,
     plataforma,
     rowData ? rowData.saldoFormatado : '-',
-    rowData ? rowData.gasto7dFormatado : '-',
+    rowData ? rowData.gastoOntemFormatado : '-',
     rowData ? rowData.mediaFormatado : '-',
     rowData ? rowData.diasFormatado : '-',
     gestor,

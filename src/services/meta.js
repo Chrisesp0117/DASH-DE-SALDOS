@@ -39,7 +39,7 @@ async function getMetaData(accountId, token, context = {}) {
         { timeout: 15000 }
       ),
       axios.get(
-        `https://graph.facebook.com/v18.0/${accountId}/insights?level=account&fields=spend&date_preset=last_7d&access_token=${accessToken}`
+        `https://graph.facebook.com/v18.0/${accountId}/insights?level=account&fields=spend&date_preset=yesterday&access_token=${accessToken}`
         ,
         { timeout: 15000 }
       )
@@ -79,14 +79,15 @@ async function getMetaData(accountId, token, context = {}) {
     saldo = (spendCap / 100) - (parseFloat(data.amount_spent || 0) / 100);
   }
 
-  const gasto7d = parseFloat(spend7dRes.data?.data?.[0]?.spend || 0);
-  const media = gasto7d / 7;
+  const gastoOntem = parseFloat(spend7dRes.data?.data?.[0]?.spend || 0);
+  const media = gastoOntem;
   const dias = media > 0 ? saldo / media : 0;
 
   return {
     ok: true,
     saldo: saldo === null ? null : Number(saldo),
-    gasto7d: Number(gasto7d),
+    gastoOntem: Number(gastoOntem),
+    gasto7d: Number(gastoOntem),
     media: Number(media),
     dias: Number(dias),
     identificador

@@ -40,7 +40,7 @@ async function generateTop10MenorSaldo(sheets, spreadsheetId) {
     .sort((a, b) => a.saldo - b.saldo)
     .slice(0, 10);
 
-  const HEADERS = ['Cliente', 'Gestor', 'Supervisor', 'Saldo', 'Gasto Médio', 'Duração Estimada'];
+  const HEADERS = ['Cliente', 'Gestor', 'Supervisor', 'Saldo', 'Gasto Ontem', 'Duração Estimada'];
   const values = sorted.map(r => [r.cliente, r.gestor, r.supervisor, r.saldoFmt, r.gastoMedioFmt, r.diasFmt]);
 
   // Cria/atualiza aba TOP10_MENOR_SALDO
@@ -145,7 +145,7 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
     const gestor = (r[7] || '').trim() || 'Sem Gestor';
     const plataforma = (r[2] || '').trim().toUpperCase();
     if (!map.has(gestor)) map.set(gestor, { GOOGLE: [], META: [] });
-    // Novos índices: 1=Cliente, 3=Saldo, 5=Média/dia, 6=Dias restantes
+    // Novos índices: 1=Cliente, 3=Saldo, 5=Gasto Ontem, 6=Dias restantes
     if (plataforma === 'GOOGLE' || plataforma === 'META') {
       map.get(gestor)[plataforma].push({
         cliente: r[1] || '-',
@@ -182,7 +182,7 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
     });
     rowIdx++;
     // Cabeçalho
-    values.push(['Cliente (Google)', 'Saldo', 'Gasto Médio', 'Duração', '', 'Cliente (Meta)', 'Saldo', 'Gasto Médio', 'Duração']);
+    values.push(['Cliente (Google)', 'Saldo', 'Gasto Ontem', 'Duração', '', 'Cliente (Meta)', 'Saldo', 'Gasto Ontem', 'Duração']);
     formatRequests.push(
       {
         repeatCell: {

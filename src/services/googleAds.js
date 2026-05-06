@@ -157,7 +157,7 @@ async function getGoogleData(customerId, refreshToken, context = {}) {
         SELECT
           metrics.cost_micros
         FROM customer
-        WHERE segments.date DURING LAST_7_DAYS
+        WHERE segments.date DURING YESTERDAY
       `).then(rows => ({ ok: true, rows })).catch(err => ({ ok: false, err })), 20000, 'google spend query');
 
       const budgetRows = await budgetPromise;
@@ -182,14 +182,14 @@ async function getGoogleData(customerId, refreshToken, context = {}) {
         identificador = '🟡 PRÉ-PAGO';
       }
 
-      // gasto 7 dias - pode falhar se estamos consultando a partir de um MCC
-      let gasto7d = 0;
+      // gasto de ontem - pode falhar se estamos consultando a partir de um MCC
+      let gastoOntem = 0;
       try {
         if (!spendResult.ok) {
           throw spendResult.err;
         }
         const spendRows = spendResult.rows;
-        gasto7d = (spendRows && spendRows[0] && spendRows[0].metrics && spendRows[0].metrics.cost_micros) ? spendRows[0].metrics.cost_micros / 1000000 : 0;
+        gastoOntem = (spendRows && spendRows[0] && spendRows[0].metrics && spendRows[0].metrics.cost_micros) ? spendRows[0].metrics.cost_micros / 1000000 : 0;
       } catch (spendErr) {
         const rawSpend = (spendErr && spendErr.response && JSON.stringify(spendErr.response.errors)) || (spendErr && spendErr.message) || String(spendErr);
         if (rawSpend.includes('REQUESTED_METRICS_FOR_MANAGER')) {
@@ -200,6 +200,7 @@ async function getGoogleData(customerId, refreshToken, context = {}) {
           return {
             ok: true,
             saldo: 0,
+            gastoOntem: 0,
             gasto7d: 0,
             media: 0,
             dias: 0,
@@ -211,12 +212,13 @@ async function getGoogleData(customerId, refreshToken, context = {}) {
         throw spendErr;
       }
 
-      const media = gasto7d / 7;
+      const media = gastoOntem;
       const dias = media > 0 ? saldo / media : 0;
 
       return {
         saldo: saldo,
-        gasto7d: gasto7d,
+        gastoOntem: gastoOntem,
+        gasto7d: gastoOntem,
         media: media,
         dias: dias.toFixed(1),
         loginCustomerId: loginCustomerId,
