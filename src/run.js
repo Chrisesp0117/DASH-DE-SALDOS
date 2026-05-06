@@ -467,6 +467,50 @@ async function run(options = {}) {
     console.error('Erro ao assegurar dashboards de gestor:', e);
   }
 
+  // Atualiza timestamps de "Última Atualização" em abas DASH-* e em BEM VINDO (se existir)
+  async function sanitizeTitleForRange(title) {
+    return String(title || '').trim().replace(/'/g, "''");
+  }
+
+  async function updateLastRunTimestamps(sheets, spreadsheetId) {
+    try {
+      const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets(properties(title))' });
+      const sheetsList = (meta.data.sheets || []).map(s => s.properties && s.properties.title).filter(Boolean);
+      const nowFmt = formatLastUpdatePTBR();
+
+      const updates = [];
+
+      for (const title of sheetsList) {
+        if (String(title || '').startsWith('DASH-')) {
+          const safe = await sanitizeTitleForRange(title);
+          updates.push({ range: `'${safe}'!D2`, values: [[nowFmt]] });
+        }
+      }
+
+      // Atualiza BEM VINDO caso exista
+      if (sheetsList.includes('BEM VINDO')) {
+        updates.push({ range: 'BEM VINDO!A2', values: [[nowFmt]] });
+      }
+
+      for (const u of updates) {
+        try {
+          await sheets.spreadsheets.values.update({ spreadsheetId, range: u.range, valueInputOption: 'RAW', requestBody: { values: u.values } });
+        } catch (err) {
+          console.warn('Falha ao atualizar timestamp em', u.range, err && err.message ? err.message : err);
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao atualizar timestamps de última execução:', err && err.message ? err.message : err);
+    }
+  }
+
+  try {
+    await updateLastRunTimestamps(sheets, process.env.SPREADSHEET_ID);
+    console.log('Timestamps de última atualização aplicados nas abas DASH-* e BEM VINDO (se existirem)');
+  } catch (e) {
+    console.error('Erro ao aplicar timestamps finais:', e);
+  }
+
   console.log('DATABASE atualizada');
 
   return { ok: true, processed: batchRows.length, total: totalClientes, cursor, nextCursor: 0, finished: true };
