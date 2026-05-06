@@ -55,14 +55,38 @@ module.exports = async (req, res) => {
 
   let ok = true;
   let message = 'Atualização concluída com sucesso.';
+  let finished = false;
+  let processedTotal = 0;
 
   try {
-    const result = await runUpdateJob({ batchSize });
-    if (!result || !result.ok) {
-      ok = false;
-      message = 'Atualização retornou status inesperado.';
-    } else if (result.finished === false) {
-      message = 'Atualização iniciada e parcialmente concluída. Próximos lotes seguirão pelo cron.';
+    const startedAt = Date.now();
+    const maxIterations = 10;
+    const maxMs = 50000;
+
+    for (let i = 0; i < maxIterations; i += 1) {
+      const result = await runUpdateJob({ batchSize });
+      if (!result || !result.ok) {
+        ok = false;
+        message = 'Atualização retornou status inesperado.';
+        break;
+      }
+
+      processedTotal += Number(result.processed || 0);
+
+      if (result.finished) {
+        finished = true;
+        message = `Atualização concluída com sucesso. Registros processados: ${processedTotal}.`;
+        break;
+      }
+
+      if (Date.now() - startedAt > maxMs) {
+        message = 'Atualização iniciada e parcialmente concluída. Os próximos lotes seguem no cron automático.';
+        break;
+      }
+    }
+
+    if (ok && !finished && !message.includes('parcialmente')) {
+      message = 'Atualização iniciada e parcialmente concluída. Os próximos lotes seguem no cron automático.';
     }
   } catch (error) {
     ok = false;
@@ -144,7 +168,20 @@ module.exports = async (req, res) => {
 
   <script>
     setTimeout(() => {
-      window.close();
+      try {
+        window.open('', '_self');
+        window.close();
+      } catch (e) {
+        // ignore
+      }
+
+      setTimeout(() => {
+        try {
+          window.location.replace('about:blank');
+        } catch (e) {
+          // ignore
+        }
+      }, 250);
     }, ${ok ? 1200 : 2500});
   </script>
 </body>

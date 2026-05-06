@@ -2,6 +2,16 @@ require('dotenv').config({ path: '.env' });
 
 const { assertCronAuth, sendJson, runUpdateJob } = require('../../src/core/serverlessJobs');
 
+function getQueryValue(urlValue, key) {
+  try {
+    const base = 'https://dash-de-saldos.vercel.app';
+    const url = new URL(String(urlValue || '/'), base);
+    return url.searchParams.get(key) || '';
+  } catch (_) {
+    return '';
+  }
+}
+
 module.exports = async (req, res) => {
   const authResponse = assertCronAuth(req, res);
   if (authResponse) {
@@ -9,7 +19,8 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const batchSize = Number(req.query?.batchSize || process.env.UPDATE_BATCH_SIZE || 3);
+    const rawBatchSize = req.query?.batchSize || getQueryValue(req && req.url, 'batchSize') || process.env.UPDATE_BATCH_SIZE || 3;
+    const batchSize = Math.max(1, Number(rawBatchSize));
     const result = await runUpdateJob({ batchSize });
     return sendJson(res, { ok: true, message: 'Planilha atualizada com sucesso', batchSize, result }, 200);
   } catch (error) {
