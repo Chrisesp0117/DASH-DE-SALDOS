@@ -165,36 +165,40 @@ function getExistingDashboardSheet(sheetMeta, sheetTitle) {
   return sheetMeta.byTitle.get(sheetTitle) || null;
 }
 
-async function createOrResetDashboardSheet(sheets, spreadsheetId, sheetMeta, sheetTitle) {
+async function ensureDashboardSheet(sheets, spreadsheetId, sheetMeta, sheetTitle) {
   const existing = getExistingDashboardSheet(sheetMeta, sheetTitle);
-  const requests = [];
 
   if (existing && existing.properties && existing.properties.sheetId !== undefined) {
-    requests.push({
-      deleteSheet: {
-        sheetId: existing.properties.sheetId
-      }
-    });
+    return {
+      sheetId: existing.properties.sheetId,
+      created: false,
+      sheet: existing
+    };
   }
-
-  const addSheetProps = { title: sheetTitle };
-  if (existing && existing.properties && existing.properties.index !== undefined && existing.properties.index !== null) {
-    addSheetProps.index = existing.properties.index;
-  }
-
-  requests.push({
-    addSheet: {
-      properties: addSheetProps
-    }
-  });
 
   const response = await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
-    requestBody: { requests }
+    requestBody: {
+      requests: [
+        {
+          addSheet: {
+            properties: {
+              title: sheetTitle
+            }
+          }
+        }
+      ]
+    }
   });
 
   const reply = (response.data.replies || []).find(item => item.addSheet && item.addSheet.properties);
-  return reply && reply.addSheet && reply.addSheet.properties ? reply.addSheet.properties.sheetId : null;
+  const sheetId = reply && reply.addSheet && reply.addSheet.properties ? reply.addSheet.properties.sheetId : null;
+
+  return {
+    sheetId,
+    created: true,
+    sheet: null
+  };
 }
 
 function pushRowFormatRequests(requests, sheetId, rowNumber, startColumnIndex, endColumnIndex, format, fields) {
@@ -406,10 +410,16 @@ async function createDashboardForGestor(sheets, spreadsheetId, gestor, options =
     const { metaRows, googleRows } = collectDashboardRows(databaseRows, gestor);
     const values = buildDashboardValues(gestor, metaRows, googleRows);
 
-    const sheetId = await createOrResetDashboardSheet(sheets, spreadsheetId, sheetMeta, sheetTitle);
+    const ensureResult = await ensureDashboardSheet(sheets, spreadsheetId, sheetMeta, sheetTitle);
+    const sheetId = ensureResult.sheetId;
     if (sheetId === null || sheetId === undefined) {
       throw new Error(`Não foi possível criar a aba ${sheetTitle}.`);
     }
+
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId,
+      range: `'${sanitizeSheetName(sheetTitle)}'!A:D`
+    });
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
@@ -420,11 +430,11 @@ async function createDashboardForGestor(sheets, spreadsheetId, gestor, options =
 
     await applyDashboardFormatting(sheets, spreadsheetId, sheetId, metaRows, googleRows);
 
-    console.log(`✅ Aba ${sheetTitle} gerada do zero com ${metaRows.length + googleRows.length} linha(s).`);
+    console.log(`✅ Aba ${sheetTitle} atualizada em A:D com ${metaRows.length + googleRows.length} linha(s).`);
 
     return {
-      created: !getExistingDashboardSheet(sheetMeta, sheetTitle),
-      rebuilt: !!getExistingDashboardSheet(sheetMeta, sheetTitle),
+      created: ensureResult.created,
+      rebuilt: !ensureResult.created,
       sheetId,
       sheetTitle,
       metaRows: metaRows.length,
