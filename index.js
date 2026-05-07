@@ -55,6 +55,10 @@ module.exports = async (req, res) => {
     return require('./api/cron/update-full')(req, res);
   }
 
+  if (path === '/api/cron/dashboards') {
+    return require('./api/cron/dashboards')(req, res);
+  }
+
   if (path === '/api/cron/report-8h') {
     return require('./api/cron/report-8h')(req, res);
   }

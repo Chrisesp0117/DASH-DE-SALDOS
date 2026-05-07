@@ -1,5 +1,7 @@
 const { getSheets } = require('../services/sheets');
 const { run } = require('../run');
+const { generateBlocosPorGestor } = require('./visualBlocks');
+const { ensureDashboardsForAllGestores } = require('./gestorDashboards');
 const { generateReport } = require('./reportGenerator');
 
 function readHeader(req, name) {
@@ -65,7 +67,10 @@ function assertCronAuth(req, res) {
 }
 
 async function runUpdateJob(options = {}) {
-  return run(options);
+  return run({
+    skipDashboards: true,
+    ...options
+  });
 }
 
 async function runReportJob(options = {}) {
@@ -78,10 +83,28 @@ async function runReportJob(options = {}) {
   return report;
 }
 
+async function runDashboardJob(options = {}) {
+  const sheets = await getSheets();
+  const spreadsheetId = process.env.SPREADSHEET_ID;
+
+  const results = {};
+
+  if (options.includeSupervisor !== false) {
+    results.supervisor = await generateBlocosPorGestor(sheets, spreadsheetId);
+  }
+
+  if (options.includeDashboards !== false) {
+    results.dashboards = await ensureDashboardsForAllGestores(sheets, spreadsheetId);
+  }
+
+  return results;
+}
+
 module.exports = {
   assertCronAuth,
   getCronSecretFromRequest,
   sendJson,
   runUpdateJob,
+  runDashboardJob,
   runReportJob
 };

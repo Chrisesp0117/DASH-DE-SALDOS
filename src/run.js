@@ -332,6 +332,7 @@ async function run(options = {}) {
   const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
   const batchSize = Math.max(1, Number(options.batchSize || process.env.UPDATE_BATCH_SIZE || 1));
   const enableStartStatus = options.enableStartStatus !== false;
+  const skipDashboards = options.skipDashboards === true;
 
   const sheets = await getSheets();
 
@@ -371,20 +372,22 @@ async function run(options = {}) {
   }
 
   // Helper: atualiza status (texto) em BEM VINDO!J5 e em D2 de todas as abas DASH-*
-  async function updateStatusOnSheets(sheets, spreadsheetId, statusText) {
+  async function updateStatusOnSheets(sheets, spreadsheetId, statusText, options = {}) {
     try {
+      const includeDashboards = options.includeDashboards !== false;
+      const includeWelcome = options.includeWelcome !== false;
       const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets(properties(title))' });
       const sheetsList = (meta.data.sheets || []).map(s => s.properties && s.properties.title).filter(Boolean);
 
       const updates = [];
       for (const title of sheetsList) {
-        if (String(title || '').startsWith('DASH-')) {
+        if (includeDashboards && String(title || '').startsWith('DASH-')) {
           const safe = String(title || '').trim().replace(/'/g, "''");
           updates.push({ range: `'${safe}'!D2`, values: [[statusText]] });
         }
       }
 
-      const welcomeTitle = sheetsList.find(t => /^bem\s*vind/i.test(String(t || '')));
+      const welcomeTitle = includeWelcome ? sheetsList.find(t => /^bem\s*vind/i.test(String(t || ''))) : null;
       if (welcomeTitle) {
         const safeWelcome = String(welcomeTitle || '').trim().replace(/'/g, "''");
         updates.push({ range: `'${safeWelcome}'!J5`, values: [[statusText]] });
@@ -411,7 +414,12 @@ async function run(options = {}) {
   // Marca como "Atualizando..." no início (welcome + DASH-*)
   if (enableStartStatus) {
     try {
-      await updateStatusOnSheets(sheets, process.env.SPREADSHEET_ID, 'Atualizando...');
+      await updateStatusOnSheets(
+        sheets,
+        process.env.SPREADSHEET_ID,
+        'Atualizando...',
+        { includeDashboards: !skipDashboards, includeWelcome: true }
+      );
       console.log('Início da atualização: Atualizando...');
     } catch (e) {
       console.warn('Não foi possível marcar como "Atualizando...":', e && e.message ? e.message : e);
@@ -535,17 +543,21 @@ async function run(options = {}) {
     console.error('Erro ao gerar SUPERVISOR:', e);
   }
 
-  try {
-    const dashResult = await ensureDashboardsForAllGestores(sheets, process.env.SPREADSHEET_ID);
-    if (dashResult.ok) {
-      const criadas = dashResult.resultados.filter(r => r.status === 'criada').length;
-      const recriadas = dashResult.resultados.filter(r => r.status === 'recriada').length;
-      console.log(`📊 Dashboards de gestor gerados: ${dashResult.totalGestores} gestor(es), ${criadas} nova(s) e ${recriadas} recriada(s)`);
-    } else {
-      console.warn('Erro ao garantir dashboards de gestor:', dashResult.error);
+  if (!skipDashboards) {
+    try {
+      const dashResult = await ensureDashboardsForAllGestores(sheets, process.env.SPREADSHEET_ID);
+      if (dashResult.ok) {
+        const criadas = dashResult.resultados.filter(r => r.status === 'criada').length;
+        const recriadas = dashResult.resultados.filter(r => r.status === 'recriada').length;
+        console.log(`📊 Dashboards de gestor gerados: ${dashResult.totalGestores} gestor(es), ${criadas} nova(s) e ${recriadas} recriada(s)`);
+      } else {
+        console.warn('Erro ao garantir dashboards de gestor:', dashResult.error);
+      }
+    } catch (e) {
+      console.error('Erro ao assegurar dashboards de gestor:', e);
     }
-  } catch (e) {
-    console.error('Erro ao assegurar dashboards de gestor:', e);
+  } else {
+    console.log('Atualização de dashboards adiada para o cron dedicado.');
   }
 
   // Atualiza timestamps de "Última Atualização" em abas DASH-* e em BEM VINDO (se existir)
@@ -553,8 +565,10 @@ async function run(options = {}) {
     return String(title || '').trim().replace(/'/g, "''");
   }
 
-  async function updateLastRunTimestamps(sheets, spreadsheetId) {
+  async function updateLastRunTimestamps(sheets, spreadsheetId, options = {}) {
     try {
+      const includeDashboards = options.includeDashboards !== false;
+      const includeWelcome = options.includeWelcome !== false;
       const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets(properties(title))' });
       const sheetsList = (meta.data.sheets || []).map(s => s.properties && s.properties.title).filter(Boolean);
       const nowFmt = formatLastUpdatePTBR();
@@ -562,14 +576,14 @@ async function run(options = {}) {
       const updates = [];
 
       for (const title of sheetsList) {
-        if (String(title || '').startsWith('DASH-')) {
+        if (includeDashboards && String(title || '').startsWith('DASH-')) {
           const safe = sanitizeTitleForRange(title);
           updates.push({ range: `'${safe}'!D2`, values: [[nowFmt]] });
         }
       }
 
       // Atualiza a aba de boas-vindas caso exista (aceita variações: BEM VINDO / BEM VINDOS)
-      const welcomeTitle = sheetsList.find(t => /^bem\s*vind/i.test(String(t || '')));
+      const welcomeTitle = includeWelcome ? sheetsList.find(t => /^bem\s*vind/i.test(String(t || ''))) : null;
       if (welcomeTitle) {
         const safeWelcome = sanitizeTitleForRange(welcomeTitle);
         updates.push({ range: `'${safeWelcome}'!J5`, values: [[nowFmt]] });
@@ -593,8 +607,12 @@ async function run(options = {}) {
   }
 
   try {
-    await updateLastRunTimestamps(sheets, process.env.SPREADSHEET_ID);
-    console.log('Timestamps de última atualização aplicados nas abas DASH-* e BEM VINDO (se existirem)');
+    await updateLastRunTimestamps(
+      sheets,
+      process.env.SPREADSHEET_ID,
+      { includeDashboards: !skipDashboards, includeWelcome: true }
+    );
+    console.log('Timestamps de última atualização aplicados nas abas de destino (se existirem)');
   } catch (e) {
     console.error('Erro ao aplicar timestamps finais:', e);
   }
