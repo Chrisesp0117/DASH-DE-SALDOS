@@ -47,7 +47,8 @@ module.exports = async (req, res) => {
   }
 
   if (path === '/api/cron/update') {
-    return require('./api/cron/update')(req, res);
+    // Mantém compatibilidade com cron atual, mas executa atualização completa
+    return require('./api/cron/update-full')(req, res);
   }
 
   if (path === '/api/cron/update-full') {
