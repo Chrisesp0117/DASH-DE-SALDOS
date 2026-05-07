@@ -376,9 +376,8 @@ async function run(options = {}) {
 
   // Marca como "Atualizando..." no início (welcome + DASH-*)
   try {
-    const nowStatus = `Atualizando... — ${formatLastUpdatePTBR()}`;
-    await updateStatusOnSheets(sheets, process.env.SPREADSHEET_ID, nowStatus);
-    console.log('Início da atualização:', nowStatus);
+    await updateStatusOnSheets(sheets, process.env.SPREADSHEET_ID, 'Atualizando...');
+    console.log('Início da atualização: Atualizando...');
   } catch (e) {
     console.warn('Não foi possível marcar como "Atualizando...":', e && e.message ? e.message : e);
   }
@@ -473,10 +472,9 @@ async function run(options = {}) {
     await writeJobCursor(sheets, process.env.SPREADSHEET_ID, nextCursor);
     const batchTime = new Date().toISOString();
     console.log(`Lote concluído | processed=${batchRows.length} | nextCursor=${nextCursor}/${totalClientes} | time=${batchTime}`);
-    // Atualiza status 'Atualizando...' com timestamp recente para indicar progresso
+    // Atualiza status 'Atualizando...' para indicar progresso
     try {
-      const nowStatus = `Atualizando... — ${formatLastUpdatePTBR()}`;
-      await updateStatusOnSheets(sheets, process.env.SPREADSHEET_ID, nowStatus);
+      await updateStatusOnSheets(sheets, process.env.SPREADSHEET_ID, 'Atualizando...');
     } catch (e) {
       console.warn('Falha ao atualizar status pós-lote:', e && e.message ? e.message : e);
     }
