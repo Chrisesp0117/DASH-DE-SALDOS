@@ -337,6 +337,39 @@ async function run(options = {}) {
 
   await ensureJobStateSheetExists(sheets, process.env.SPREADSHEET_ID);
 
+  // helper: sleep
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  // helper: batch update values with retry/backoff on 429
+  async function batchUpdateValues(sheets, spreadsheetId, data) {
+    const maxAttempts = 4;
+    let attempt = 0;
+    while (attempt < maxAttempts) {
+      try {
+        return await sheets.spreadsheets.values.batchUpdate({
+          spreadsheetId,
+          requestBody: {
+            valueInputOption: 'RAW',
+            data
+          }
+        });
+      } catch (err) {
+        const msg = String(err && (err.message || err.code || err.status) || '').toLowerCase();
+        const isQuota = msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(err && err.status) === '429' || String(err && err.code) === '429';
+        attempt += 1;
+        if (isQuota && attempt < maxAttempts) {
+          const wait = Math.pow(2, attempt) * 1000;
+          console.warn(`Quota 429 recebido, retry em ${wait}ms (tentativa ${attempt}/${maxAttempts})`);
+          await sleep(wait);
+          continue;
+        }
+        throw err;
+      }
+    }
+  }
+
   // Helper: atualiza status (texto) em BEM VINDO!J5 e em D2 de todas as abas DASH-*
   async function updateStatusOnSheets(sheets, spreadsheetId, statusText) {
     try {
@@ -357,17 +390,17 @@ async function run(options = {}) {
         updates.push({ range: `'${safeWelcome}'!J5`, values: [[statusText]] });
       }
 
-      for (const u of updates) {
-        try {
-          await sheets.spreadsheets.values.update({ spreadsheetId, range: u.range, valueInputOption: 'RAW', requestBody: { values: u.values } });
-        } catch (err) {
-          // Ignora erros de proteção de célula; continua execução
-          const errMsg = err && err.message ? err.message : String(err);
-          if (errMsg.toLowerCase().includes('protected')) {
-            console.warn('Célula protegida, ignorando:', u.range);
-          } else {
-            console.warn('Falha ao atualizar status em', u.range, errMsg);
-          }
+      if (updates.length === 0) return;
+
+      try {
+        await batchUpdateValues(sheets, spreadsheetId, updates);
+      } catch (err) {
+        const errMsg = err && err.message ? err.message : String(err);
+        // If protected cell or quota, log and continue
+        if (errMsg.toLowerCase().includes('protected')) {
+          console.warn('Células protegidas ou não editáveis; ignorando atualizações de status.');
+        } else {
+          console.warn('Falha ao atualizar status em lote:', errMsg);
         }
       }
     } catch (err) {
@@ -541,20 +574,17 @@ async function run(options = {}) {
         const safeWelcome = sanitizeTitleForRange(welcomeTitle);
         updates.push({ range: `'${safeWelcome}'!J5`, values: [[nowFmt]] });
       }
-
-      console.log(`Atualizando timestamps em ${updates.length} célula(s): ${updates.map(u => u.range).join(', ')}`);
-
-      for (const u of updates) {
-        try {
-          await sheets.spreadsheets.values.update({ spreadsheetId, range: u.range, valueInputOption: 'RAW', requestBody: { values: u.values } });
-          console.log(`✓ Timestamp atualizado em ${u.range}`);
-        } catch (err) {
-          const errMsg = err && err.message ? err.message : String(err);
-          if (errMsg.toLowerCase().includes('protected')) {
-            console.warn('Célula protegida, ignorando:', u.range);
-          } else {
-            console.warn('Falha ao atualizar timestamp em', u.range, errMsg);
-          }
+      if (updates.length === 0) return;
+      console.log(`Atualizando timestamps em ${updates.length} célula(s)`);
+      try {
+        await batchUpdateValues(sheets, spreadsheetId, updates);
+        console.log('✓ Timestamps atualizados em lote');
+      } catch (err) {
+        const errMsg = err && err.message ? err.message : String(err);
+        if (errMsg.toLowerCase().includes('protected')) {
+          console.warn('Células protegidas, ignorando timestamps.');
+        } else {
+          console.warn('Falha ao atualizar timestamps em lote:', errMsg);
         }
       }
     } catch (err) {
