@@ -20,17 +20,29 @@ module.exports = async (req, res) => {
 
   try {
     const rawBatchSize = req.query?.batchSize || getQueryValue(req && req.url, 'batchSize') || process.env.UPDATE_BATCH_SIZE || 5;
-    const batchSize = Math.max(1, Number(rawBatchSize));
+    const batchSize = Math.max(5, Number(rawBatchSize));
     const startedAt = Date.now();
-    const maxMs = Math.max(5000, Number(process.env.CRON_MAX_RUNTIME_MS || 45000));
+    const maxMs = Math.max(10000, Number(process.env.CRON_MAX_RUNTIME_MS || 25000));
     
     let totalProcessed = 0;
     let finished = false;
-    const maxIterations = 1000; // safety limit
+    const maxIterations = 200; // safety limit
     let iteration = 0;
 
     // Executa lotes até o fim (finished=true)
     while (!finished && iteration < maxIterations) {
+      if (Date.now() - startedAt >= maxMs) {
+        return sendJson(res, {
+          ok: true,
+          message: 'Parcial: limite de tempo da função atingido; continuará no próximo agendamento',
+          finished: false,
+          reason: 'time_budget_reached',
+          iterations: iteration,
+          totalProcessed,
+          batchSize
+        }, 200);
+      }
+
       iteration++;
       let result;
       try {
