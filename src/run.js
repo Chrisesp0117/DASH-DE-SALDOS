@@ -519,7 +519,7 @@ async function run(options = {}) {
   }
 
   // Atualiza timestamps de "Última Atualização" em abas DASH-* e em BEM VINDO (se existir)
-  async function sanitizeTitleForRange(title) {
+  function sanitizeTitleForRange(title) {
     return String(title || '').trim().replace(/'/g, "''");
   }
 
@@ -533,7 +533,7 @@ async function run(options = {}) {
 
       for (const title of sheetsList) {
         if (String(title || '').startsWith('DASH-')) {
-          const safe = await sanitizeTitleForRange(title);
+          const safe = sanitizeTitleForRange(title);
           updates.push({ range: `'${safe}'!D2`, values: [[nowFmt]] });
         }
       }
@@ -541,15 +541,23 @@ async function run(options = {}) {
       // Atualiza a aba de boas-vindas caso exista (aceita variações: BEM VINDO / BEM VINDOS)
       const welcomeTitle = sheetsList.find(t => /^bem\s*vind/i.test(String(t || '')));
       if (welcomeTitle) {
-        const safeWelcome = await sanitizeTitleForRange(welcomeTitle);
+        const safeWelcome = sanitizeTitleForRange(welcomeTitle);
         updates.push({ range: `'${safeWelcome}'!J5`, values: [[nowFmt]] });
       }
+
+      console.log(`Atualizando timestamps em ${updates.length} célula(s): ${updates.map(u => u.range).join(', ')}`);
 
       for (const u of updates) {
         try {
           await sheets.spreadsheets.values.update({ spreadsheetId, range: u.range, valueInputOption: 'RAW', requestBody: { values: u.values } });
+          console.log(`✓ Timestamp atualizado em ${u.range}`);
         } catch (err) {
-          console.warn('Falha ao atualizar timestamp em', u.range, err && err.message ? err.message : err);
+          const errMsg = err && err.message ? err.message : String(err);
+          if (errMsg.toLowerCase().includes('protected')) {
+            console.warn('Célula protegida, ignorando:', u.range);
+          } else {
+            console.warn('Falha ao atualizar timestamp em', u.range, errMsg);
+          }
         }
       }
     } catch (err) {
