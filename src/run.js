@@ -360,7 +360,13 @@ async function run(options = {}) {
         try {
           await sheets.spreadsheets.values.update({ spreadsheetId, range: u.range, valueInputOption: 'RAW', requestBody: { values: u.values } });
         } catch (err) {
-          console.warn('Falha ao atualizar status em', u.range, err && err.message ? err.message : err);
+          // Ignora erros de proteção de célula; continua execução
+          const errMsg = err && err.message ? err.message : String(err);
+          if (errMsg.toLowerCase().includes('protected')) {
+            console.warn('Célula protegida, ignorando:', u.range);
+          } else {
+            console.warn('Falha ao atualizar status em', u.range, errMsg);
+          }
         }
       }
     } catch (err) {
