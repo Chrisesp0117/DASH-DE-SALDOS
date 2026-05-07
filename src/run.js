@@ -331,6 +331,7 @@ async function processClienteRow(row, indices) {
 async function run(options = {}) {
   const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
   const batchSize = Math.max(1, Number(options.batchSize || process.env.UPDATE_BATCH_SIZE || 1));
+  const enableStartStatus = options.enableStartStatus !== false;
 
   const sheets = await getSheets();
 
@@ -375,11 +376,13 @@ async function run(options = {}) {
   }
 
   // Marca como "Atualizando..." no início (welcome + DASH-*)
-  try {
-    await updateStatusOnSheets(sheets, process.env.SPREADSHEET_ID, 'Atualizando...');
-    console.log('Início da atualização: Atualizando...');
-  } catch (e) {
-    console.warn('Não foi possível marcar como "Atualizando...":', e && e.message ? e.message : e);
+  if (enableStartStatus) {
+    try {
+      await updateStatusOnSheets(sheets, process.env.SPREADSHEET_ID, 'Atualizando...');
+      console.log('Início da atualização: Atualizando...');
+    } catch (e) {
+      console.warn('Não foi possível marcar como "Atualizando...":', e && e.message ? e.message : e);
+    }
   }
 
   const clientesRes = await sheets.spreadsheets.values.get({
@@ -472,12 +475,6 @@ async function run(options = {}) {
     await writeJobCursor(sheets, process.env.SPREADSHEET_ID, nextCursor);
     const batchTime = new Date().toISOString();
     console.log(`Lote concluído | processed=${batchRows.length} | nextCursor=${nextCursor}/${totalClientes} | time=${batchTime}`);
-    // Atualiza status 'Atualizando...' para indicar progresso
-    try {
-      await updateStatusOnSheets(sheets, process.env.SPREADSHEET_ID, 'Atualizando...');
-    } catch (e) {
-      console.warn('Falha ao atualizar status pós-lote:', e && e.message ? e.message : e);
-    }
     return { ok: true, processed: batchRows.length, total: totalClientes, cursor, nextCursor, finished: false };
   }
 
