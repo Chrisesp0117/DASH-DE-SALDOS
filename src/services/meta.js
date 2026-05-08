@@ -76,11 +76,10 @@ async function getMetaData(accountId, token, context = {}) {
   let saldo = null;
   const identificador = hasValidSpendCap ? '' : '💳 CARTÃO';
   if (hasValidSpendCap) {
-    // spend_cap e amount_spent já vêm em centavos (cênts)
-    // dividir por 100 para converter para reais
-    const spend_cap_reais = spendCap / 100;
-    const amount_spent_reais = (parseFloat(data.amount_spent || 0)) / 100;
-    saldo = spend_cap_reais - amount_spent_reais;
+    // O Meta já retorna o saldo disponível em spend_cap.
+    // amount_spent não deve ser subtraído aqui, pois isso duplica o desconto
+    // e faz a planilha mostrar um saldo menor do que o exibido no Gerenciador.
+    saldo = spendCap / 100;
   }
 
   // gastoOntem vem em centavos também
