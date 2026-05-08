@@ -217,9 +217,10 @@ async function mirrorSupervisorBlockToDashboard(sheets, spreadsheetId, sheetMeta
 
   const height = Math.max(1, sourceBlock.endRowIndex - sourceBlock.startRowIndex);
 
+  // Only clear columns A-D in DASH sheets to preserve other columns
   await sheets.spreadsheets.values.clear({
     spreadsheetId,
-    range: `'${sanitizeSheetName(sheetTitle)}'!A:Z`
+    range: `'${sanitizeSheetName(sheetTitle)}'!A:D`
   });
 
   await sheets.spreadsheets.batchUpdate({
@@ -233,7 +234,7 @@ async function mirrorSupervisorBlockToDashboard(sheets, spreadsheetId, sheetMeta
               startRowIndex: sourceBlock.startRowIndex,
               endRowIndex: sourceBlock.endRowIndex,
               startColumnIndex: 0,
-              endColumnIndex: 9
+              endColumnIndex: 4
             },
             destination: {
               sheetId: targetSheetId,
@@ -260,13 +261,14 @@ async function mirrorSupervisorBlockToDashboard(sheets, spreadsheetId, sheetMeta
 
 /**
  * Clears all data from SUPERVISOR and all DASH-{Gestor} sheets
- * to ensure clean state before atomic rewrite
+ * to ensure clean state before atomic rewrite.
+ * IMPORTANT: Only clears columns A-D in DASH sheets to preserve other columns!
  */
 async function clearAllDashboardData(sheets, spreadsheetId, gestores = []) {
   const sheetMeta = await getSheetMeta(sheets, spreadsheetId);
   const clearRequests = [];
 
-  // Clear SUPERVISOR
+  // Clear SUPERVISOR (entire data range)
   const supervisorSheet = sheetMeta.byTitle.get('SUPERVISOR');
   if (supervisorSheet && supervisorSheet.properties && supervisorSheet.properties.sheetId !== null) {
     clearRequests.push({
@@ -275,14 +277,14 @@ async function clearAllDashboardData(sheets, spreadsheetId, gestores = []) {
     });
   }
 
-  // Clear all DASH-{Gestor} sheets
+  // Clear only columns A-D in all DASH-{Gestor} sheets (preserve other columns)
   for (const gestor of gestores) {
     const sheetTitle = `${DASH_PREFIX}${gestor}`;
     const sheet = sheetMeta.byTitle.get(sheetTitle);
     if (sheet && sheet.properties && sheet.properties.sheetId !== null) {
       clearRequests.push({
         sheetId: sheet.properties.sheetId,
-        range: `'${sanitizeSheetName(sheetTitle)}'!A:Z`
+        range: `'${sanitizeSheetName(sheetTitle)}'!A:D`
       });
     }
   }
