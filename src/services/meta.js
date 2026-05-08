@@ -76,10 +76,15 @@ async function getMetaData(accountId, token, context = {}) {
   let saldo = null;
   const identificador = hasValidSpendCap ? '' : '💳 CARTÃO';
   if (hasValidSpendCap) {
-    saldo = (spendCap / 100) - (parseFloat(data.amount_spent || 0) / 100);
+    // spend_cap e amount_spent já vêm em centavos (cênts)
+    // dividir por 100 para converter para reais
+    const spend_cap_reais = spendCap / 100;
+    const amount_spent_reais = (parseFloat(data.amount_spent || 0)) / 100;
+    saldo = spend_cap_reais - amount_spent_reais;
   }
 
-  const gastoOntem = parseFloat(spend7dRes.data?.data?.[0]?.spend || 0);
+  // gastoOntem vem em centavos também
+  const gastoOntem = (parseFloat(spend7dRes.data?.data?.[0]?.spend || 0)) / 100;
   const media = gastoOntem;
   const dias = media > 0 ? saldo / media : 0;
 
