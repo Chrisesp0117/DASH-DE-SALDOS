@@ -6,8 +6,9 @@ const {
   finishJobState
 } = require('../run');
 const { generateBlocosPorGestor } = require('./visualBlocks');
-const { ensureDashboardsForAllGestores } = require('./gestorDashboards');
+const { ensureDashboardsForAllGestores, atomicRefreshAllDashboards } = require('./gestorDashboards');
 const { generateReport } = require('./reportGenerator');
+
 
 function readHeader(req, name) {
   const headers = req && req.headers;
@@ -271,9 +272,9 @@ async function runDashboardJob(options = {}) {
     }
 
     if (options.includeDashboards !== false) {
-      results.dashboards = await ensureDashboardsForAllGestores(sheets, spreadsheetId, {
-        supervisorResult: results.supervisor || supervisorResult || null
-      });
+      // Use atomic refresh to delete + rewrite all dashboards atomically
+      // This prevents partial write errors during dashboard updates
+      results.dashboards = await atomicRefreshAllDashboards(sheets, spreadsheetId);
     }
 
     return { ok: true, ...results };
@@ -284,6 +285,7 @@ async function runDashboardJob(options = {}) {
     };
   }
 }
+
 
 module.exports = {
   assertCronAuth,

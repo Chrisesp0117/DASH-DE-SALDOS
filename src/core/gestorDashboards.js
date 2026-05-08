@@ -258,6 +258,107 @@ async function mirrorSupervisorBlockToDashboard(sheets, spreadsheetId, sheetMeta
   };
 }
 
+/**
+ * Clears all data from SUPERVISOR and all DASH-{Gestor} sheets
+ * to ensure clean state before atomic rewrite
+ */
+async function clearAllDashboardData(sheets, spreadsheetId, gestores = []) {
+  const sheetMeta = await getSheetMeta(sheets, spreadsheetId);
+  const clearRequests = [];
+
+  // Clear SUPERVISOR
+  const supervisorSheet = sheetMeta.byTitle.get('SUPERVISOR');
+  if (supervisorSheet && supervisorSheet.properties && supervisorSheet.properties.sheetId !== null) {
+    clearRequests.push({
+      sheetId: supervisorSheet.properties.sheetId,
+      range: 'SUPERVISOR!A2:Z'
+    });
+  }
+
+  // Clear all DASH-{Gestor} sheets
+  for (const gestor of gestores) {
+    const sheetTitle = `${DASH_PREFIX}${gestor}`;
+    const sheet = sheetMeta.byTitle.get(sheetTitle);
+    if (sheet && sheet.properties && sheet.properties.sheetId !== null) {
+      clearRequests.push({
+        sheetId: sheet.properties.sheetId,
+        range: `'${sanitizeSheetName(sheetTitle)}'!A:Z`
+      });
+    }
+  }
+
+  // Execute all clear operations in parallel
+  if (clearRequests.length > 0) {
+    for (const clearReq of clearRequests) {
+      await sheets.spreadsheets.values.clear({
+        spreadsheetId,
+        range: clearReq.range
+      });
+    }
+  }
+
+  return { ok: true, cleared: clearRequests.length };
+}
+
+/**
+ * Atomic refresh: clear all dashboards, regenerate SUPERVISOR, rewrite all DASH sheets
+ * Prevents partial write errors by doing delete + full rewrite as a single operation
+ */
+async function atomicRefreshAllDashboards(sheets, spreadsheetId) {
+  try {
+    // Step 1: Generate supervisor with all blocks
+    const supervisorResult = await generateBlocosPorGestor(sheets, spreadsheetId);
+    if (!supervisorResult || supervisorResult.ok === false) {
+      return {
+        ok: false,
+        error: 'Não foi possível gerar o bloco do SUPERVISOR.'
+      };
+    }
+
+    // Step 2: Get all gestores
+    const gestores = (supervisorResult.blocks || []).map(b => b.gestor);
+
+    // Step 3: Clear all dashboards at once
+    await clearAllDashboardData(sheets, spreadsheetId, gestores);
+
+    // Step 4: Regenerate SUPERVISOR and all DASH sheets from scratch
+    const sheetMeta = await getSheetMeta(sheets, spreadsheetId);
+    const sourceSheet = sheetMeta.byTitle.get('SUPERVISOR');
+    const sourceSheetId = sourceSheet && sourceSheet.properties ? sourceSheet.properties.sheetId : null;
+    const blocksByGestor = new Map((supervisorResult.blocks || []).map(block => [block.gestor, block]));
+
+    const resultados = [];
+    for (const gestor of gestores) {
+      const result = await createDashboardForGestor(sheets, spreadsheetId, gestor, {
+        sheetMeta,
+        sourceSheetId,
+        sourceBlock: blocksByGestor.get(gestor)
+      });
+
+      resultados.push({
+        gestor,
+        status: result.error ? 'erro' : (result.rebuilt ? 'recriada' : 'criada'),
+        message: result.error || (result.rebuilt ? 'Recriada' : 'Criada')
+      });
+    }
+
+    return {
+      ok: true,
+      totalGestores: gestores.length,
+      gestoresProcessados: resultados.length,
+      resultados,
+      atomic: true
+    };
+  } catch (error) {
+    console.error('Erro ao fazer refresh atômico dos dashboards:', error.message || error);
+    return {
+      ok: false,
+      error: error.message || 'Erro desconhecido',
+      atomic: true
+    };
+  }
+}
+
 function pushRowFormatRequests(requests, sheetId, rowNumber, startColumnIndex, endColumnIndex, format, fields) {
   requests.push({
     repeatCell: {
@@ -579,5 +680,7 @@ async function ensureDashboardsForAllGestores(sheets, spreadsheetId, options = {
 module.exports = {
   listGestoresAtivos,
   createDashboardForGestor,
-  ensureDashboardsForAllGestores
+  ensureDashboardsForAllGestores,
+  clearAllDashboardData,
+  atomicRefreshAllDashboards
 };
