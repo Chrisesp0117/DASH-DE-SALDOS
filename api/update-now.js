@@ -6,7 +6,7 @@
 
 require('dotenv').config({ path: '.env' });
 
-const { runUpdateJob } = require('../src/core/serverlessJobs');
+const { runFullUpdateJob } = require('../src/core/serverlessJobs');
 
 function getQueryValue(urlValue, key) {
   try {
@@ -56,7 +56,7 @@ module.exports = async (req, res) => {
   }
 
   const batchSizeParam = req && req.query ? req.query.batchSize : getQueryValue(req && req.url, 'batchSize');
-  const batchSize = Math.max(1, Number(batchSizeParam || 30));
+  const batchSize = Math.max(1, Number(batchSizeParam || 5));
 
   let ok = true;
   let message = 'Atualização concluída com sucesso.';
@@ -64,34 +64,22 @@ module.exports = async (req, res) => {
   let processedTotal = 0;
 
   try {
-    const startedAt = Date.now();
-    const maxIterations = 4;
-    const maxMs = 45000;
+    const result = await runFullUpdateJob({ batchSize, maxMs: 45000 });
 
-    for (let i = 0; i < maxIterations; i += 1) {
-      const result = await runUpdateJob({ batchSize });
-      if (!result || !result.ok) {
-        ok = false;
-        message = 'Atualização retornou status inesperado.';
-        break;
-      }
+    if (!result || !result.ok) {
+      ok = false;
+      message = 'Atualização retornou status inesperado.';
+    } else {
+      processedTotal = Number(result.totalProcessed || 0);
+      finished = result.finished === true;
 
-      processedTotal += Number(result.processed || 0);
-
-      if (result.finished) {
-        finished = true;
+      if (finished) {
         message = `Atualização concluída com sucesso. Registros processados: ${processedTotal}.`;
-        break;
+      } else if (result.reason === 'time_budget_reached') {
+        message = 'Atualização iniciada e parcialmente concluída. Os próximos lotes seguem automaticamente no cron.';
+      } else {
+        message = 'Atualização iniciada e parcialmente concluída. Os próximos lotes seguem automaticamente no cron.';
       }
-
-      if (Date.now() - startedAt > maxMs) {
-        message = 'Atualização iniciada e parcialmente concluída. Os próximos lotes seguem no cron automático.';
-        break;
-      }
-    }
-
-    if (ok && !finished && !message.includes('parcialmente')) {
-      message = 'Atualização iniciada e parcialmente concluída. Os próximos lotes seguem no cron automático.';
     }
   } catch (error) {
     ok = false;
