@@ -1,5 +1,10 @@
 const { getSheets } = require('../services/sheets');
-const { run } = require('../run');
+const {
+  run,
+  acquireJobStateLock,
+  assertJobStateActive,
+  finishJobState
+} = require('../run');
 const { generateBlocosPorGestor } = require('./visualBlocks');
 const { ensureDashboardsForAllGestores } = require('./gestorDashboards');
 const { generateReport } = require('./reportGenerator');
@@ -80,6 +85,12 @@ async function runFullUpdateJob(options = {}) {
   const includeSupervisor = options.includeSupervisor !== false;
   const includeDashboards = options.includeDashboards !== false;
 
+  const sheets = await getSheets();
+  const spreadsheetId = process.env.SPREADSHEET_ID;
+  const jobControl = await acquireJobStateLock(sheets, spreadsheetId, {
+    leaseMs: Number(process.env.JOB_LEASE_MS || 10 * 60 * 1000)
+  });
+
   const startedAt = Date.now();
   let totalProcessed = 0;
   let finished = false;
@@ -102,9 +113,21 @@ async function runFullUpdateJob(options = {}) {
     try {
       result = await runUpdateJob({
         batchSize,
-        enableStartStatus: iteration === 1
+        enableStartStatus: iteration === 1,
+        jobControl
       });
     } catch (error) {
+      if (String(error && error.code || '') === 'JOB_INTERRUPTED') {
+        return {
+          ok: true,
+          finished: false,
+          reason: 'restarted_by_newer_job',
+          iterations: iteration - 1,
+          totalProcessed,
+          batchSize
+        };
+      }
+
       const msg = String(error && (error.message || error.code || error.status) || '').toLowerCase();
       const isQuota = msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(error && error.status) === '429' || String(error && error.code) === '429';
 
@@ -142,6 +165,18 @@ async function runFullUpdateJob(options = {}) {
       };
     }
 
+    const active = await assertJobStateActive(sheets, spreadsheetId, jobControl);
+    if (!active.active) {
+      return {
+        ok: true,
+        finished: false,
+        reason: 'restarted_by_newer_job',
+        iterations: iteration,
+        totalProcessed,
+        batchSize
+      };
+    }
+
     totalProcessed += Number(result.processed || 0);
     finished = result.finished === true;
   }
@@ -157,12 +192,29 @@ async function runFullUpdateJob(options = {}) {
     };
   }
 
+  const supervisorResult = includeSupervisor
+    ? await generateBlocosPorGestor(sheets, spreadsheetId)
+    : null;
+
   const dashboardResult = await runDashboardJob({
-    includeSupervisor,
-    includeDashboards
+    includeSupervisor: false,
+    includeDashboards,
+    jobControl,
+    supervisorResult
   });
 
   if (!dashboardResult || dashboardResult.ok === false) {
+    if (dashboardResult && String(dashboardResult.error || '').includes('mais recente')) {
+      return {
+        ok: true,
+        finished: false,
+        reason: 'restarted_by_newer_job',
+        iterations: iteration,
+        totalProcessed,
+        batchSize
+      };
+    }
+
     return {
       ok: false,
       finished: true,
@@ -173,6 +225,8 @@ async function runFullUpdateJob(options = {}) {
       dashboardResult
     };
   }
+
+  await finishJobState(sheets, spreadsheetId, jobControl, 'idle');
 
   return {
     ok: true,
@@ -198,15 +252,28 @@ async function runDashboardJob(options = {}) {
   try {
     const sheets = await getSheets();
     const spreadsheetId = process.env.SPREADSHEET_ID;
+    const jobControl = options.jobControl || null;
+
+    if (jobControl) {
+      const active = await assertJobStateActive(sheets, spreadsheetId, jobControl);
+      if (!active.active) {
+        return { ok: false, error: 'Job interrompido por uma atualização mais recente.' };
+      }
+    }
 
     const results = {};
+    const supervisorResult = options.supervisorResult || null;
 
     if (options.includeSupervisor !== false) {
-      results.supervisor = await generateBlocosPorGestor(sheets, spreadsheetId);
+      results.supervisor = supervisorResult || await generateBlocosPorGestor(sheets, spreadsheetId);
+    } else if (supervisorResult) {
+      results.supervisor = supervisorResult;
     }
 
     if (options.includeDashboards !== false) {
-      results.dashboards = await ensureDashboardsForAllGestores(sheets, spreadsheetId);
+      results.dashboards = await ensureDashboardsForAllGestores(sheets, spreadsheetId, {
+        supervisorResult: results.supervisor || supervisorResult || null
+      });
     }
 
     return { ok: true, ...results };

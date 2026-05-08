@@ -5,6 +5,8 @@
  * DASH-Felipe is only a visual reference for the manual layout.
  */
 
+const { generateBlocosPorGestor } = require('./visualBlocks');
+
 const DASH_PREFIX = 'DASH-';
 const DASH_LAST_UPDATE_LABEL_CELL = 'D1';
 const DASH_LAST_UPDATE_VALUE_CELL = 'D2';
@@ -198,6 +200,61 @@ async function ensureDashboardSheet(sheets, spreadsheetId, sheetMeta, sheetTitle
     sheetId,
     created: true,
     sheet: null
+  };
+}
+
+async function mirrorSupervisorBlockToDashboard(sheets, spreadsheetId, sheetMeta, sourceSheetId, sourceBlock, sheetTitle) {
+  const ensureResult = await ensureDashboardSheet(sheets, spreadsheetId, sheetMeta, sheetTitle);
+  const targetSheetId = ensureResult.sheetId;
+
+  if (targetSheetId === null || targetSheetId === undefined) {
+    throw new Error(`Não foi possível criar a aba ${sheetTitle}.`);
+  }
+
+  if (!sourceBlock || !Number.isFinite(sourceBlock.startRowIndex) || !Number.isFinite(sourceBlock.endRowIndex)) {
+    throw new Error(`Bloco de origem inválido para ${sheetTitle}.`);
+  }
+
+  const height = Math.max(1, sourceBlock.endRowIndex - sourceBlock.startRowIndex);
+
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId,
+    range: `'${sanitizeSheetName(sheetTitle)}'!A:Z`
+  });
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [
+        {
+          copyPaste: {
+            source: {
+              sheetId: sourceSheetId,
+              startRowIndex: sourceBlock.startRowIndex,
+              endRowIndex: sourceBlock.endRowIndex,
+              startColumnIndex: 0,
+              endColumnIndex: 9
+            },
+            destination: {
+              sheetId: targetSheetId,
+              startRowIndex: 0,
+              startColumnIndex: 0
+            },
+            pasteType: 'PASTE_NORMAL',
+            pasteOrientation: 'NORMAL'
+          }
+        }
+      ]
+    }
+  });
+
+  return {
+    created: ensureResult.created,
+    rebuilt: !ensureResult.created,
+    sheetId: targetSheetId,
+    sheetTitle,
+    totalRows: height,
+    mirrored: true
   };
 }
 
@@ -407,8 +464,32 @@ async function createDashboardForGestor(sheets, spreadsheetId, gestor, options =
   const sheetTitle = `${DASH_PREFIX}${gestor}`;
 
   try {
-    const databaseRows = Array.isArray(options.databaseRows) ? options.databaseRows : [];
     const sheetMeta = options.sheetMeta || await getSheetMeta(sheets, spreadsheetId);
+    const sourceSheet = sheetMeta.byTitle.get('SUPERVISOR') || null;
+
+    if (options.sourceSheetId && options.sourceBlock) {
+      const mirrored = await mirrorSupervisorBlockToDashboard(
+        sheets,
+        spreadsheetId,
+        sheetMeta,
+        options.sourceSheetId,
+        options.sourceBlock,
+        sheetTitle
+      );
+
+      console.log(`✅ Aba ${sheetTitle} espelhada a partir do SUPERVISOR.`);
+
+      return {
+        created: mirrored.created,
+        rebuilt: mirrored.rebuilt,
+        sheetId: mirrored.sheetId,
+        sheetTitle,
+        totalRows: mirrored.totalRows,
+        mirrored: true
+      };
+    }
+
+    const databaseRows = Array.isArray(options.databaseRows) ? options.databaseRows : [];
     const { metaRows, googleRows } = collectDashboardRows(databaseRows, gestor);
     const values = buildDashboardValues(gestor, metaRows, googleRows);
 
@@ -449,24 +530,28 @@ async function createDashboardForGestor(sheets, spreadsheetId, gestor, options =
   }
 }
 
-async function ensureDashboardsForAllGestores(sheets, spreadsheetId) {
+async function ensureDashboardsForAllGestores(sheets, spreadsheetId, options = {}) {
   try {
-    const [gestores, sheetMeta, databaseRes] = await Promise.all([
-      listGestoresAtivos(sheets, spreadsheetId),
-      getSheetMeta(sheets, spreadsheetId),
-      sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: 'DATABASE!A2:M'
-      })
-    ]);
+    const supervisorResult = options.supervisorResult || await generateBlocosPorGestor(sheets, spreadsheetId);
+    if (!supervisorResult || supervisorResult.ok === false) {
+      return {
+        ok: false,
+        error: 'Não foi possível gerar o bloco do SUPERVISOR.'
+      };
+    }
 
-    const databaseRows = databaseRes.data.values || [];
+    const sheetMeta = await getSheetMeta(sheets, spreadsheetId);
+    const sourceSheet = sheetMeta.byTitle.get('SUPERVISOR');
+    const sourceSheetId = sourceSheet && sourceSheet.properties ? sourceSheet.properties.sheetId : null;
+    const blocksByGestor = new Map((supervisorResult.blocks || []).map(block => [block.gestor, block]));
+    const gestores = Array.from(blocksByGestor.keys());
     const resultados = [];
 
     for (const gestor of gestores) {
       const result = await createDashboardForGestor(sheets, spreadsheetId, gestor, {
         sheetMeta,
-        databaseRows
+        sourceSheetId,
+        sourceBlock: blocksByGestor.get(gestor)
       });
 
       resultados.push({

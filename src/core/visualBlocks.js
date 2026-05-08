@@ -170,7 +170,9 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
   let values = [];
   let formatRequests = [];
   let rowIdx = 0;
+  const blocks = [];
   for (const [gestor, plataformas] of map.entries()) {
+    const blockStartRowIndex = rowIdx;
     // Bloco do gestor
     values.push([`Gestor: ${gestor}`]);
     formatRequests.push({
@@ -275,6 +277,13 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
     // Linha em branco entre blocos
     values.push(['']);
     rowIdx++;
+
+    blocks.push({
+      gestor,
+      startRowIndex: blockStartRowIndex,
+      endRowIndex: rowIdx,
+      rowCount: rowIdx - blockStartRowIndex
+    });
   }
 
   // Descobrir sheetId
@@ -313,6 +322,14 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
       requestBody: { requests: formatRequests }
     });
   }
+
+  return {
+    ok: true,
+    sheetId,
+    sheetTitle: 'SUPERVISOR',
+    blocks,
+    totalGestores: blocks.length
+  };
 }
 
 module.exports = { generateTop10MenorSaldo, generateBlocosPorGestor };

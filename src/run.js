@@ -1,4 +1,5 @@
 require('dotenv').config({ path: '.env' });
+const { randomUUID } = require('crypto');
 
 const { getSheets } = require('./services/sheets');
 const { getGoogleData } = require('./services/googleAds');
@@ -11,6 +12,183 @@ const DATABASE_HEADERS = [
   'Data', 'Cliente', 'Plataforma', 'Saldo', 'Gasto Ontem', 'Gasto Ontem', 'Dias restantes',
   'Gestor', 'Supervisor', 'Status', 'Obs', 'DataISO', 'Identificador'
 ];
+
+const JOB_STATE_RANGE = 'JOB_STATE!A1:F1';
+const JOB_STATE_LEGACY_CURSOR_RANGE = 'JOB_STATE!A1';
+
+function createDefaultJobState() {
+  return {
+    status: 'idle',
+    jobId: '',
+    generation: 0,
+    cursor: 0,
+    leaseUntil: 0,
+    updatedAt: ''
+  };
+}
+
+function toIsoNow() {
+  return new Date().toISOString();
+}
+
+function parseJobStateRow(values) {
+  const row = Array.isArray(values) && values.length ? values[0] : [];
+  const first = row[0];
+
+  if (row.length === 1 && Number.isFinite(Number(first))) {
+    return {
+      ...createDefaultJobState(),
+      cursor: Math.max(0, Number(first))
+    };
+  }
+
+  const generation = Number(row[2]);
+  const cursor = Number(row[3]);
+  const leaseUntil = Number(row[4]);
+
+  return {
+    status: String(row[0] || 'idle').trim() || 'idle',
+    jobId: String(row[1] || '').trim(),
+    generation: Number.isFinite(generation) && generation >= 0 ? generation : 0,
+    cursor: Number.isFinite(cursor) && cursor >= 0 ? cursor : 0,
+    leaseUntil: Number.isFinite(leaseUntil) && leaseUntil >= 0 ? leaseUntil : 0,
+    updatedAt: String(row[5] || '').trim()
+  };
+}
+
+function serializeJobState(state) {
+  const normalized = state || createDefaultJobState();
+  return [[
+    String(normalized.status || 'idle'),
+    String(normalized.jobId || ''),
+    String(Number.isFinite(Number(normalized.generation)) ? Number(normalized.generation) : 0),
+    String(Math.max(0, Number(normalized.cursor || 0))),
+    String(Math.max(0, Number(normalized.leaseUntil || 0))),
+    String(normalized.updatedAt || toIsoNow())
+  ]];
+}
+
+async function readJobState(sheets, spreadsheetId) {
+  try {
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: JOB_STATE_RANGE
+    });
+
+    return parseJobStateRow(response.data.values || []);
+  } catch (error) {
+    try {
+      const cursorResponse = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: JOB_STATE_LEGACY_CURSOR_RANGE
+      });
+      const value = cursorResponse.data.values && cursorResponse.data.values[0] && cursorResponse.data.values[0][0];
+      const parsed = Number(value);
+      if (Number.isFinite(parsed) && parsed >= 0) {
+        return {
+          ...createDefaultJobState(),
+          cursor: parsed
+        };
+      }
+    } catch (_) {
+      // ignore legacy read errors
+    }
+
+    return createDefaultJobState();
+  }
+}
+
+async function writeJobState(sheets, spreadsheetId, state) {
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: JOB_STATE_RANGE,
+    valueInputOption: 'RAW',
+    requestBody: {
+      values: serializeJobState(state)
+    }
+  });
+}
+
+async function acquireJobStateLock(sheets, spreadsheetId, options = {}) {
+  const current = await readJobState(sheets, spreadsheetId);
+  const nextGeneration = Math.max(0, Number(current.generation || 0)) + 1;
+  const jobId = String(options.jobId || randomUUID());
+  const leaseMs = Math.max(30000, Number(options.leaseMs || process.env.JOB_LEASE_MS || 10 * 60 * 1000));
+  const now = Date.now();
+  const state = {
+    status: 'running',
+    jobId,
+    generation: nextGeneration,
+    cursor: 0,
+    leaseUntil: now + leaseMs,
+    updatedAt: toIsoNow()
+  };
+
+  await writeJobState(sheets, spreadsheetId, state);
+
+  return state;
+}
+
+function isSameJobState(current, control) {
+  if (!control) {
+    return true;
+  }
+
+  return String(current.jobId || '') === String(control.jobId || '')
+    && Number(current.generation || 0) === Number(control.generation || 0);
+}
+
+async function assertJobStateActive(sheets, spreadsheetId, control) {
+  if (!control) {
+    return { active: true, state: createDefaultJobState() };
+  }
+
+  const current = await readJobState(sheets, spreadsheetId);
+  const active = isSameJobState(current, control);
+  return { active, state: current };
+}
+
+async function touchJobState(sheets, spreadsheetId, control, updates = {}) {
+  if (!control) {
+    return;
+  }
+
+  const current = await readJobState(sheets, spreadsheetId);
+  if (!isSameJobState(current, control)) {
+    const err = new Error('Job interrompido por uma atualização mais recente.');
+    err.code = 'JOB_INTERRUPTED';
+    throw err;
+  }
+
+  await writeJobState(sheets, spreadsheetId, {
+    status: updates.status || current.status || 'running',
+    jobId: control.jobId,
+    generation: control.generation,
+    cursor: Number.isFinite(Number(updates.cursor)) ? Number(updates.cursor) : current.cursor,
+    leaseUntil: Date.now() + Math.max(30000, Number(updates.leaseMs || process.env.JOB_LEASE_MS || 10 * 60 * 1000)),
+    updatedAt: toIsoNow()
+  });
+}
+
+async function finishJobState(sheets, spreadsheetId, control, status = 'idle') {
+  if (!control) {
+    return;
+  }
+
+  const current = await readJobState(sheets, spreadsheetId);
+  if (!isSameJobState(current, control)) {
+    return;
+  }
+
+  await writeJobState(sheets, spreadsheetId, {
+    status,
+    jobId: control.jobId,
+    generation: control.generation,
+    cursor: 0,
+    leaseUntil: 0,
+    updatedAt: toIsoNow()
+  });
+}
 
 function isValidGoogleCustomerId(value) {
   return /^\d{10}$/.test(String(value || '').trim());
@@ -110,7 +288,7 @@ async function ensureJobStateSheetExists(sheets, spreadsheetId) {
   try {
     await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'JOB_STATE!A1'
+      range: JOB_STATE_RANGE
     });
     return;
   } catch (error) {
@@ -147,28 +325,15 @@ async function clearDatabaseData(sheets, spreadsheetId) {
 }
 
 async function readJobCursor(sheets, spreadsheetId) {
-  try {
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: 'JOB_STATE!A1'
-    });
-
-    const value = response.data.values && response.data.values[0] && response.data.values[0][0];
-    const parsed = Number(value);
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-  } catch (error) {
-    return 0;
-  }
+  const state = await readJobState(sheets, spreadsheetId);
+  return Number.isFinite(Number(state.cursor)) && Number(state.cursor) >= 0 ? Number(state.cursor) : 0;
 }
 
 async function writeJobCursor(sheets, spreadsheetId, cursor) {
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: 'JOB_STATE!A1',
-    valueInputOption: 'RAW',
-    requestBody: {
-      values: [[String(cursor)]]
-    }
+  const current = await readJobState(sheets, spreadsheetId);
+  await writeJobState(sheets, spreadsheetId, {
+    ...current,
+    cursor
   });
 }
 
@@ -333,10 +498,24 @@ async function run(options = {}) {
   const batchSize = Math.max(1, Number(options.batchSize || process.env.UPDATE_BATCH_SIZE || 1));
   const enableStartStatus = options.enableStartStatus !== false;
   const skipDashboards = options.skipDashboards === true;
+  let jobControl = options.jobControl || null;
 
   const sheets = await getSheets();
 
   await ensureJobStateSheetExists(sheets, process.env.SPREADSHEET_ID);
+
+  if (!jobControl) {
+    jobControl = await acquireJobStateLock(sheets, process.env.SPREADSHEET_ID, {
+      leaseMs: Number(process.env.JOB_LEASE_MS || 10 * 60 * 1000)
+    });
+  } else {
+    const active = await assertJobStateActive(sheets, process.env.SPREADSHEET_ID, jobControl);
+    if (!active.active) {
+      const err = new Error('Job interrompido por uma atualização mais recente.');
+      err.code = 'JOB_INTERRUPTED';
+      throw err;
+    }
+  }
 
   // helper: sleep
   function sleep(ms) {
@@ -418,7 +597,7 @@ async function run(options = {}) {
         sheets,
         process.env.SPREADSHEET_ID,
         'Atualizando...',
-        { includeDashboards: !skipDashboards, includeWelcome: true }
+        { includeDashboards: false, includeWelcome: true }
       );
       console.log('Início da atualização: Atualizando...');
     } catch (e) {
@@ -466,6 +645,8 @@ async function run(options = {}) {
         values: [DATABASE_HEADERS]
       }
     });
+
+    await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { cursor: 0 });
   }
 
   if (!batchClientes.length) {
@@ -476,6 +657,13 @@ async function run(options = {}) {
 
   const batchRows = await Promise.all(
     batchClientes.map(async (row, batchIndex) => {
+      const active = await assertJobStateActive(sheets, process.env.SPREADSHEET_ID, jobControl);
+      if (!active.active) {
+        const err = new Error('Job interrompido por uma atualização mais recente.');
+        err.code = 'JOB_INTERRUPTED';
+        throw err;
+      }
+
       const index = cursor + batchIndex;
       const values = await processClienteRow(row, {
         idxCliente,
@@ -509,6 +697,8 @@ async function run(options = {}) {
     }
   });
 
+  await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { cursor: cursor + batchRows.length });
+
   const nextCursor = cursor + batchRows.length;
   const finished = nextCursor >= totalClientes;
 
@@ -519,7 +709,7 @@ async function run(options = {}) {
     return { ok: true, processed: batchRows.length, total: totalClientes, cursor, nextCursor, finished: false };
   }
 
-  await writeJobCursor(sheets, process.env.SPREADSHEET_ID, 0);
+  await finishJobState(sheets, process.env.SPREADSHEET_ID, jobControl, 'idle');
 
   try {
     await applyDatabaseFormatting(sheets, process.env.SPREADSHEET_ID, totalClientes);
@@ -610,7 +800,7 @@ async function run(options = {}) {
     await updateLastRunTimestamps(
       sheets,
       process.env.SPREADSHEET_ID,
-      { includeDashboards: !skipDashboards, includeWelcome: true }
+      { includeDashboards: false, includeWelcome: true }
     );
     console.log('Timestamps de última atualização aplicados nas abas de destino (se existirem)');
   } catch (e) {
@@ -623,7 +813,13 @@ async function run(options = {}) {
 }
 
 module.exports = {
-  run
+  run,
+  readJobState,
+  writeJobState,
+  acquireJobStateLock,
+  assertJobStateActive,
+  touchJobState,
+  finishJobState
 };
 
 if (require.main === module) {
