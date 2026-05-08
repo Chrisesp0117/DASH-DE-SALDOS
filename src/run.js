@@ -621,6 +621,9 @@ async function run(options = {}) {
       const cliente = (row[idxCliente] || '').trim();
       console.log(`${cliente} processado`);
 
+      // diagnostic
+      try { console.log('[diagnostic] processed client', { cliente, index }); } catch (e) { }
+
       if (onProgress) {
         await onProgress(index + 1, totalClientes, cliente);
       }
@@ -642,6 +645,7 @@ async function run(options = {}) {
   });
 
   await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { cursor: cursor + batchRows.length });
+  console.log('[diagnostic] touched job state', { jobId: jobControl.jobId, generation: jobControl.generation, nextCursor: cursor + batchRows.length });
 
   const nextCursor = cursor + batchRows.length;
   const finished = nextCursor >= totalClientes;

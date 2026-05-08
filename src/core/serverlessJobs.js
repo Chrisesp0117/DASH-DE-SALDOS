@@ -91,6 +91,7 @@ async function runFullUpdateJob(options = {}) {
   const jobControl = await acquireJobStateLock(sheets, spreadsheetId, {
     leaseMs: Number(process.env.JOB_LEASE_MS || 10 * 60 * 1000)
   });
+  console.log('[diagnostic] acquired job lock', { jobId: jobControl.jobId, generation: jobControl.generation, leaseUntil: jobControl.leaseUntil });
 
   const startedAt = Date.now();
   let totalProcessed = 0;
@@ -117,8 +118,10 @@ async function runFullUpdateJob(options = {}) {
         enableStartStatus: iteration === 1,
         jobControl
       });
+      console.log('[diagnostic] runUpdateJob result', { iteration, result });
     } catch (error) {
       if (String(error && error.code || '') === 'JOB_INTERRUPTED') {
+        console.log('[diagnostic] runUpdateJob interrupted by newer job at iteration', iteration);
         return {
           ok: true,
           finished: false,
@@ -167,7 +170,9 @@ async function runFullUpdateJob(options = {}) {
     }
 
     const active = await assertJobStateActive(sheets, spreadsheetId, jobControl);
+    console.log('[diagnostic] assertJobStateActive', { iteration, active });
     if (!active.active) {
+      console.log('[diagnostic] job no longer active, stopping', { iteration });
       return {
         ok: true,
         finished: false,
