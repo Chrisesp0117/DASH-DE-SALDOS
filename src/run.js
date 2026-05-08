@@ -555,6 +555,13 @@ async function run(options = {}) {
     try {
       const includeDashboards = options.includeDashboards !== false;
       const includeWelcome = options.includeWelcome !== false;
+
+      // When dashboards are disabled, avoid metadata reads entirely to save quota.
+      // The start-status indicator is optional and may be skipped in low-quota runs.
+      if (!includeDashboards) {
+        return;
+      }
+
       const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets(properties(title))' });
       const sheetsList = (meta.data.sheets || []).map(s => s.properties && s.properties.title).filter(Boolean);
 
@@ -759,6 +766,13 @@ async function run(options = {}) {
     try {
       const includeDashboards = options.includeDashboards !== false;
       const includeWelcome = options.includeWelcome !== false;
+
+      // Avoid metadata reads when dashboards are disabled.
+      // This keeps the finalization step from consuming unnecessary read quota.
+      if (!includeDashboards) {
+        return;
+      }
+
       const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets(properties(title))' });
       const sheetsList = (meta.data.sheets || []).map(s => s.properties && s.properties.title).filter(Boolean);
       const nowFmt = formatLastUpdatePTBR();
