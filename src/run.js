@@ -496,7 +496,6 @@ async function processClienteRow(row, indices) {
 async function run(options = {}) {
   const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
   const batchSize = Math.max(1, Number(options.batchSize || process.env.UPDATE_BATCH_SIZE || 1));
-  const enableStartStatus = options.enableStartStatus !== false;
   const skipDashboards = options.skipDashboards === true;
   let jobControl = options.jobControl || null;
 
@@ -547,68 +546,6 @@ async function run(options = {}) {
         }
         throw err;
       }
-    }
-  }
-
-  // Helper: atualiza status (texto) em BEM VINDO!J5 e em D2 de todas as abas DASH-*
-  async function updateStatusOnSheets(sheets, spreadsheetId, statusText, options = {}) {
-    try {
-      const includeDashboards = options.includeDashboards !== false;
-      const includeWelcome = options.includeWelcome !== false;
-
-      // When dashboards are disabled, avoid metadata reads entirely to save quota.
-      // The start-status indicator is optional and may be skipped in low-quota runs.
-      if (!includeDashboards) {
-        return;
-      }
-
-      const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets(properties(title))' });
-      const sheetsList = (meta.data.sheets || []).map(s => s.properties && s.properties.title).filter(Boolean);
-
-      const updates = [];
-      for (const title of sheetsList) {
-        if (includeDashboards && String(title || '').startsWith('DASH-')) {
-          const safe = String(title || '').trim().replace(/'/g, "''");
-          updates.push({ range: `'${safe}'!D2`, values: [[statusText]] });
-        }
-      }
-
-      const welcomeTitle = includeWelcome ? sheetsList.find(t => /^bem\s*vind/i.test(String(t || ''))) : null;
-      if (welcomeTitle) {
-        const safeWelcome = String(welcomeTitle || '').trim().replace(/'/g, "''");
-        updates.push({ range: `'${safeWelcome}'!J5`, values: [[statusText]] });
-      }
-
-      if (updates.length === 0) return;
-
-      try {
-        await batchUpdateValues(sheets, spreadsheetId, updates);
-      } catch (err) {
-        const errMsg = err && err.message ? err.message : String(err);
-        // If protected cell or quota, log and continue
-        if (errMsg.toLowerCase().includes('protected')) {
-          console.warn('Células protegidas ou não editáveis; ignorando atualizações de status.');
-        } else {
-          console.warn('Falha ao atualizar status em lote:', errMsg);
-        }
-      }
-    } catch (err) {
-      console.error('Erro em updateStatusOnSheets:', err && err.message ? err.message : err);
-    }
-  }
-
-  // Marca como "Atualizando..." no início (welcome + DASH-*)
-  if (enableStartStatus) {
-    try {
-      await updateStatusOnSheets(
-        sheets,
-        process.env.SPREADSHEET_ID,
-        'Atualizando...',
-        { includeDashboards: false, includeWelcome: true }
-      );
-      console.log('Início da atualização: Atualizando...');
-    } catch (e) {
-      console.warn('Não foi possível marcar como "Atualizando...":', e && e.message ? e.message : e);
     }
   }
 
@@ -755,70 +692,6 @@ async function run(options = {}) {
     }
   } else {
     console.log('Atualização de dashboards adiada para o cron dedicado.');
-  }
-
-  // Atualiza timestamps de "Última Atualização" em abas DASH-* e em BEM VINDO (se existir)
-  function sanitizeTitleForRange(title) {
-    return String(title || '').trim().replace(/'/g, "''");
-  }
-
-  async function updateLastRunTimestamps(sheets, spreadsheetId, options = {}) {
-    try {
-      const includeDashboards = options.includeDashboards !== false;
-      const includeWelcome = options.includeWelcome !== false;
-
-      // Avoid metadata reads when dashboards are disabled.
-      // This keeps the finalization step from consuming unnecessary read quota.
-      if (!includeDashboards) {
-        return;
-      }
-
-      const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets(properties(title))' });
-      const sheetsList = (meta.data.sheets || []).map(s => s.properties && s.properties.title).filter(Boolean);
-      const nowFmt = formatLastUpdatePTBR();
-
-      const updates = [];
-
-      for (const title of sheetsList) {
-        if (includeDashboards && String(title || '').startsWith('DASH-')) {
-          const safe = sanitizeTitleForRange(title);
-          updates.push({ range: `'${safe}'!D2`, values: [[nowFmt]] });
-        }
-      }
-
-      // Atualiza a aba de boas-vindas caso exista (aceita variações: BEM VINDO / BEM VINDOS)
-      const welcomeTitle = includeWelcome ? sheetsList.find(t => /^bem\s*vind/i.test(String(t || ''))) : null;
-      if (welcomeTitle) {
-        const safeWelcome = sanitizeTitleForRange(welcomeTitle);
-        updates.push({ range: `'${safeWelcome}'!J5`, values: [[nowFmt]] });
-      }
-      if (updates.length === 0) return;
-      console.log(`Atualizando timestamps em ${updates.length} célula(s)`);
-      try {
-        await batchUpdateValues(sheets, spreadsheetId, updates);
-        console.log('✓ Timestamps atualizados em lote');
-      } catch (err) {
-        const errMsg = err && err.message ? err.message : String(err);
-        if (errMsg.toLowerCase().includes('protected')) {
-          console.warn('Células protegidas, ignorando timestamps.');
-        } else {
-          console.warn('Falha ao atualizar timestamps em lote:', errMsg);
-        }
-      }
-    } catch (err) {
-      console.error('Erro ao atualizar timestamps de última execução:', err && err.message ? err.message : err);
-    }
-  }
-
-  try {
-    await updateLastRunTimestamps(
-      sheets,
-      process.env.SPREADSHEET_ID,
-      { includeDashboards: false, includeWelcome: true }
-    );
-    console.log('Timestamps de última atualização aplicados nas abas de destino (se existirem)');
-  } catch (e) {
-    console.error('Erro ao aplicar timestamps finais:', e);
   }
 
   console.log('DATABASE atualizada');
