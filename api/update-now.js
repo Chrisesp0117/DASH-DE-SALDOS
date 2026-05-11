@@ -408,7 +408,7 @@ module.exports = async (req, res) => {
         return {
           label: '⏳ Em Progresso',
           icon: '⌛',
-          text: `A atualização está em andamento. Restam ${Math.max(0, Math.ceil(leaseRemainingMs / 1000))}s no lock.`,
+          text: 'A atualização está em andamento. Restam ' + Math.max(0, Math.ceil(leaseRemainingMs / 1000)) + 's no lock.',
           disabled: true,
           kind: 'active'
         };
@@ -418,7 +418,7 @@ module.exports = async (req, res) => {
         return {
           label: '⚠️ Lock Ativo',
           icon: '⌛',
-          text: `O job ainda está marcado como rodando, mas o heartbeat está antigo (${heartbeatAgeMs ? Math.ceil(heartbeatAgeMs / 1000) : '?'}s). Pode estar travado.`,
+          text: 'O job ainda está marcado como rodando, mas o heartbeat está antigo (' + (heartbeatAgeMs ? Math.ceil(heartbeatAgeMs / 1000) : '?') + 's). Pode estar travado.',
           disabled: false,
           kind: 'stale'
         };
@@ -500,7 +500,7 @@ module.exports = async (req, res) => {
         } else {
           statusEl.textContent = lockView.label;
           statusIcon.textContent = lockView.icon;
-          statusText.textContent = state.updatedAt ? `Última: ${state.updatedAt}` : lockView.text;
+          statusText.textContent = state.updatedAt ? ('Última: ' + state.updatedAt) : lockView.text;
           startBtn.disabled = false;
           refreshBtn.disabled = false;
         }
