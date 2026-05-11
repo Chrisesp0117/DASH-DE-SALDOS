@@ -100,6 +100,7 @@ async function runFullUpdateJob(options = {}) {
   const includeDashboards = options.includeDashboards !== false;
   const rejectIfRunning = options.rejectIfRunning !== false;
   const force = options.force === true;
+  const resetCursor = options.resetCursor === true;
 
   const sheets = await getSheets();
   const spreadsheetId = process.env.SPREADSHEET_ID;
@@ -117,7 +118,8 @@ async function runFullUpdateJob(options = {}) {
     }
   }
   const jobControl = await acquireJobStateLock(sheets, spreadsheetId, {
-    leaseMs: Number(process.env.JOB_LEASE_MS || 10 * 60 * 1000)
+    leaseMs: Number(process.env.JOB_LEASE_MS || 10 * 60 * 1000),
+    resetCursor
   });
   console.log('[diagnostic] acquired job lock', { jobId: jobControl.jobId, generation: jobControl.generation, leaseUntil: jobControl.leaseUntil });
 
@@ -151,6 +153,7 @@ async function runFullUpdateJob(options = {}) {
     } catch (error) {
       if (String(error && error.code || '') === 'JOB_INTERRUPTED') {
         console.log('[diagnostic] runUpdateJob interrupted by newer job at iteration', iteration);
+        await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
         return {
           ok: true,
           finished: false,
@@ -205,6 +208,7 @@ async function runFullUpdateJob(options = {}) {
     console.log('[diagnostic] assertJobStateActive', { iteration, active });
     if (!active.active) {
       console.log('[diagnostic] job no longer active, stopping', { iteration });
+      await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
       return {
         ok: true,
         finished: false,
@@ -244,6 +248,7 @@ async function runFullUpdateJob(options = {}) {
 
   if (!dashboardResult || dashboardResult.ok === false) {
     if (dashboardResult && String(dashboardResult.error || '').includes('mais recente')) {
+      await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
       return {
         ok: true,
         finished: false,

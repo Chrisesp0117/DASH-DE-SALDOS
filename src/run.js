@@ -115,11 +115,15 @@ async function acquireJobStateLock(sheets, spreadsheetId, options = {}) {
   const jobId = String(options.jobId || randomUUID());
   const leaseMs = Math.max(30000, Number(options.leaseMs || process.env.JOB_LEASE_MS || 10 * 60 * 1000));
   const now = Date.now();
+  const resetCursor = options.resetCursor === true;
+  const preservedCursor = Number.isFinite(Number(current.cursor)) && Number(current.cursor) >= 0
+    ? Number(current.cursor)
+    : 0;
   const state = {
     status: 'running',
     jobId,
     generation: nextGeneration,
-    cursor: Number.isFinite(Number(current.cursor)) && Number(current.cursor) >= 0 ? Number(current.cursor) : 0,
+    cursor: resetCursor ? 0 : preservedCursor,
     leaseUntil: now + leaseMs,
     updatedAt: toIsoNow()
   };

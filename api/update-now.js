@@ -76,6 +76,12 @@ module.exports = async (req, res) => {
   const forceParam = req && req.query ? req.query.force : getQueryValue(req && req.url, 'force');
   const force = String(forceParam || '').toLowerCase() === 'true' || String(forceParam || '') === '1';
 
+  const resetRaw = req && req.query ? req.query.reset : getQueryValue(req && req.url, 'reset');
+  const resetCursor = String(resetRaw || '').toLowerCase() === 'true' || String(resetRaw || '') === '1';
+
+  const dbOnlyRaw = req && req.query ? req.query.databaseOnly : getQueryValue(req && req.url, 'databaseOnly');
+  const databaseOnly = String(dbOnlyRaw || '').toLowerCase() === 'true' || String(dbOnlyRaw || '') === '1';
+
   const method = String(req && req.method || 'GET').toUpperCase();
 
   if (method === 'POST' || isJsonRequest(req)) {
@@ -85,7 +91,15 @@ module.exports = async (req, res) => {
         return sendJsonResponse(res, { ok: false, running: true, state: active.state }, 409);
       }
 
-      const result = await runFullUpdateJob({ batchSize, maxMs: 45000, rejectIfRunning: true, force });
+      const result = await runFullUpdateJob({
+        batchSize,
+        maxMs: 45000,
+        rejectIfRunning: true,
+        force,
+        resetCursor,
+        includeSupervisor: !databaseOnly,
+        includeDashboards: !databaseOnly
+      });
       return sendJsonResponse(res, result, result && result.ok === false ? 500 : 200);
     } catch (error) {
       const payload = {
@@ -182,7 +196,16 @@ module.exports = async (req, res) => {
     async function refresh() {
       try {
         const res = await fetch(statusUrl, { cache: 'no-store' });
+        const ct = (res.headers.get('content-type') || '').toLowerCase();
+        if (!ct.includes('application/json')) {
+          statusEl.textContent = 'Resposta inválida da API (esperado JSON). Confirme a URL /api/update-status no deploy.';
+          return;
+        }
         const json = await res.json();
+        if (json && json.ok === false) {
+          statusEl.textContent = (json.error && String(json.error)) || 'Falha ao ler status';
+          return;
+        }
         const state = json && json.state ? json.state : {};
         const total = Number(json && json.totalClients ? json.totalClients : 0);
         const cursor = Number(state.cursor || 0);

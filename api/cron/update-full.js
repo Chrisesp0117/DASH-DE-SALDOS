@@ -22,12 +22,20 @@ module.exports = async (req, res) => {
     const rawBatchSize = req.query?.batchSize || getQueryValue(req && req.url, 'batchSize') || process.env.UPDATE_BATCH_SIZE || 5;
     const batchSize = Math.max(5, Number(rawBatchSize));
     const maxMs = Math.max(10000, Number(process.env.CRON_MAX_RUNTIME_MS || 45000));
+
+    const resetRaw = req.query?.reset || getQueryValue(req && req.url, 'reset');
+    const resetCursor = String(resetRaw || '').toLowerCase() === '1' || String(resetRaw || '').toLowerCase() === 'true';
+
+    const dbOnlyRaw = req.query?.databaseOnly || getQueryValue(req && req.url, 'databaseOnly');
+    const databaseOnly = String(dbOnlyRaw || '').toLowerCase() === '1' || String(dbOnlyRaw || '').toLowerCase() === 'true';
+
     const result = await runFullUpdateJob({
       batchSize,
       maxMs,
-      includeSupervisor: true,
-      includeDashboards: true,
-      rejectIfRunning: true
+      includeSupervisor: !databaseOnly,
+      includeDashboards: !databaseOnly,
+      rejectIfRunning: true,
+      resetCursor
     });
 
     if (!result || !result.ok) {
@@ -52,6 +60,8 @@ module.exports = async (req, res) => {
         iterations: result.iterations,
         totalProcessed: result.totalProcessed,
         batchSize,
+        resetCursor,
+        databaseOnly,
         dashboards: result.dashboardResult || null
       }, 200);
     }
@@ -63,7 +73,9 @@ module.exports = async (req, res) => {
       reason: result.reason || 'time_budget_reached',
       iterations: result.iterations,
       totalProcessed: result.totalProcessed,
-      batchSize
+      batchSize,
+      resetCursor,
+      databaseOnly
     }, 200);
   } catch (error) {
     console.error('❌ Erro no cron update-full:', error);

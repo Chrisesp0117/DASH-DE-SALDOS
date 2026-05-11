@@ -1,3 +1,5 @@
+const { sendJson } = require('./src/core/serverlessJobs');
+
 function sendText(res, text, statusCode = 200) {
   if (res && typeof res.status === 'function' && typeof res.send === 'function') {
     return res.status(statusCode).send(text);
@@ -34,12 +36,15 @@ module.exports = async (req, res) => {
   }
 
   if (path === '/api/update') {
-    // `api/update` foi removido; redireciona para `api/update-now`
-    return require('./api/update-now')(req, res);
+    return require('./api/update')(req, res);
   }
 
   if (path === '/api/update-now') {
     return require('./api/update-now')(req, res);
+  }
+
+  if (path === '/api/update-status') {
+    return require('./api/update-status')(req, res);
   }
 
   if (path === '/api/report') {
@@ -47,8 +52,7 @@ module.exports = async (req, res) => {
   }
 
   if (path === '/api/cron/update') {
-    // Mantém compatibilidade com cron atual, mas executa atualização completa
-    return require('./api/cron/update-full')(req, res);
+    return require('./api/cron/update')(req, res);
   }
 
   if (path === '/api/cron/update-full') {
@@ -65,6 +69,14 @@ module.exports = async (req, res) => {
 
   if (path === '/api/cron/report-17h') {
     return require('./api/cron/report-17h')(req, res);
+  }
+
+  if (path.startsWith('/api/')) {
+    return sendJson(res, {
+      ok: false,
+      error: 'Not found',
+      path
+    }, 404);
   }
 
   return sendText(res, 'OK', 200);
