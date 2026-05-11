@@ -358,6 +358,8 @@ module.exports = async (req, res) => {
     const statusUrl = '/api/update-status?secret=${encodeURIComponent(secret)}';
     const startUrlBase = '/api/update-now?secret=${encodeURIComponent(secret)}';
     let manualRunActive = false;
+    let refreshInFlight = false;
+    let initialStatusLoaded = false;
     let manualRetryTimer = null;
     let idleWaitTimer = null;
     let lastUserMessage = '';
@@ -476,7 +478,16 @@ module.exports = async (req, res) => {
     }
 
     async function refresh() {
-      renderLoadingState('Carregando status da atualização...');
+      if (refreshInFlight) {
+        return;
+      }
+
+      refreshInFlight = true;
+
+      if (!initialStatusLoaded) {
+        renderLoadingState('Carregando status da atualização...');
+      }
+
       try {
         const res = await fetch(statusUrl, { cache: 'no-store' });
         const json = await res.json().catch(() => ({}));
@@ -506,6 +517,7 @@ module.exports = async (req, res) => {
         }
 
         counterEl.textContent = cursor + ' / ' + total;
+        initialStatusLoaded = true;
       } catch (e) {
         statusEl.textContent = '❌ Erro';
         statusIcon.textContent = '⚠️';
@@ -513,6 +525,9 @@ module.exports = async (req, res) => {
         counterEl.textContent = '— / —';
         startBtn.disabled = false;
         refreshBtn.disabled = false;
+        initialStatusLoaded = true;
+      } finally {
+        refreshInFlight = false;
       }
     }
 
