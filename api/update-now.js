@@ -73,7 +73,7 @@ module.exports = async (req, res) => {
   }
 
   const batchSizeParam = req && req.query ? req.query.batchSize : getQueryValue(req, 'batchSize');
-  const batchSize = Math.max(5, Number(batchSizeParam || 20));
+  const batchSize = Math.max(10, Number(batchSizeParam || 50));
   const forceParam = req && req.query ? req.query.force : getQueryValue(req, 'force');
   const force = String(forceParam || '').toLowerCase() === 'true' || String(forceParam || '') === '1';
 
@@ -359,6 +359,7 @@ module.exports = async (req, res) => {
     const startUrlBase = '/api/update-now?secret=${encodeURIComponent(secret)}';
     let manualRunActive = false;
     let manualRetryTimer = null;
+    let idleWaitTimer = null;
     let lastUserMessage = '';
 
     function showMessage(text, type) {
@@ -374,12 +375,48 @@ module.exports = async (req, res) => {
         clearTimeout(manualRetryTimer);
         manualRetryTimer = null;
       }
+      if (idleWaitTimer) {
+        clearTimeout(idleWaitTimer);
+        idleWaitTimer = null;
+      }
     }
 
     function renderRunningState(label, icon, text) {
       statusEl.textContent = label;
       statusIcon.textContent = icon;
       statusText.textContent = text;
+    }
+
+    async function waitForIdleAndRetry(delayMs = 2000, maxWaitMs = 10 * 60 * 1000) {
+      const startedAt = Date.now();
+
+      async function tick() {
+        try {
+          const res = await fetch(statusUrl, { cache: 'no-store' });
+          const json = await res.json().catch(() => ({}));
+          const state = json && json.state ? json.state : {};
+          const running = String(state.status || '') === 'running' && Number(state.leaseUntil || 0) > Date.now();
+
+          if (!running) {
+            renderRunningState('⏳ Continuando', '⌛', 'O lote anterior terminou. Iniciando o próximo...');
+            idleWaitTimer = setTimeout(() => start({ internalRetry: true }), 300);
+            return;
+          }
+
+          if (Date.now() - startedAt > maxWaitMs) {
+            showMessage('⚠️ Tempo de espera excedido. A atualização continua em andamento; tente novamente mais tarde.', 'error');
+            setManualState(false);
+            return;
+          }
+
+          renderRunningState('⏳ Em Progresso', '⌛', 'Aguardando o término do lote atual...');
+          idleWaitTimer = setTimeout(tick, delayMs);
+        } catch (e) {
+          idleWaitTimer = setTimeout(tick, delayMs);
+        }
+      }
+
+      tick();
     }
 
     async function refresh() {
@@ -446,8 +483,8 @@ module.exports = async (req, res) => {
           setManualState(false);
         } else {
           if (json && json.finished === false) {
-            showMessage('⏳ Lote concluído. Continuando automaticamente...', 'success');
-            manualRetryTimer = setTimeout(() => start({ internalRetry: true }), 1200);
+            showMessage('⏳ Lote concluído. Aguardando o próximo ciclo...', 'success');
+            await waitForIdleAndRetry(2000);
             return;
           }
 
