@@ -17,6 +17,11 @@ const DATABASE_HEADERS = [
 const JOB_STATE_RANGE = 'JOB_STATE!A1:M1';
 const JOB_STATE_LEGACY_CURSOR_RANGE = 'JOB_STATE!A1';
 
+// Heartbeat configuration
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 20 * 1000; // 20s
+const DEFAULT_MAX_MISSED_HEARTBEATS = 3; // stale if missing 3 heartbeats
+const HEARTBEAT_STALE_THRESHOLD_MS = DEFAULT_HEARTBEAT_INTERVAL_MS * DEFAULT_MAX_MISSED_HEARTBEATS;
+
 function createDefaultJobState() {
   return {
     status: 'idle',
@@ -150,6 +155,32 @@ async function getOwnerId() {
   }
 }
 
+async function startHeartbeatTimer(sheets, spreadsheetId, jobControl, intervalMs = DEFAULT_HEARTBEAT_INTERVAL_MS) {
+  if (!jobControl) return null;
+  
+  const heartbeatTimer = setInterval(async () => {
+    try {
+      const current = await readJobState(sheets, spreadsheetId);
+      if (!isSameJobState(current, jobControl)) {
+        // job was taken over; stop this timer
+        clearInterval(heartbeatTimer);
+        return;
+      }
+      
+      // refresh lease without incrementing attempts
+      await touchJobState(sheets, spreadsheetId, jobControl, {
+        lastAction: 'heartbeat',
+        leaseMs: 60000
+      });
+      console.log(`[heartbeat] lease refreshed for jobId=${jobControl.jobId}`);
+    } catch (e) {
+      console.warn(`[heartbeat] error: ${e && e.message ? e.message : e}`);
+    }
+  }, intervalMs);
+  
+  return heartbeatTimer;
+}
+
 async function appendJobHistory(sheets, spreadsheetId, entry) {
   try {
     const values = [[
@@ -279,6 +310,8 @@ async function touchJobState(sheets, spreadsheetId, control, updates = {}) {
     throw err;
   }
   const leaseMs = Math.max(60000, Number(updates.leaseMs || process.env.JOB_LEASE_MS || 60 * 1000));
+  // If lastAction is heartbeat, do not increment attempts
+  const isHeartbeat = String(updates.lastAction || '').includes('heartbeat');
   const nextLease = Date.now() + leaseMs;
   const nextCursor = Number.isFinite(Number(updates.cursor)) ? Number(updates.cursor) : current.cursor;
   const nextAttempts = Number.isFinite(Number(updates.attempts)) ? Number(updates.attempts) : (Number.isFinite(Number(current.attempts)) ? Number(current.attempts) : 0);
@@ -292,7 +325,7 @@ async function touchJobState(sheets, spreadsheetId, control, updates = {}) {
     updatedAt: toIsoNow(),
     owner: current.owner || (await getOwnerId()),
     heartbeatAt: toIsoNow(),
-    attempts: nextAttempts,
+    attempts: isHeartbeat ? nextAttempts : (nextAttempts + 1),
     lastError: updates.lastError || current.lastError || '',
     lastAction: updates.lastAction || 'touch',
     takeoverBy: current.takeoverBy || '',
@@ -961,11 +994,14 @@ module.exports = {
   assertJobStateActive,
   touchJobState,
   finishJobState,
-  releaseJobState
+  releaseJobState,
+  appendJobHistory,
+  getOwnerId,
+  startHeartbeatTimer,
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
+  DEFAULT_MAX_MISSED_HEARTBEATS,
+  HEARTBEAT_STALE_THRESHOLD_MS
 };
-// exported helpers
-module.exports.appendJobHistory = appendJobHistory;
-module.exports.getOwnerId = getOwnerId;
 
 if (require.main === module) {
   run()

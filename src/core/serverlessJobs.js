@@ -6,7 +6,9 @@ const {
   finishJobState,
   releaseJobState,
   readJobState,
-  touchJobState
+  touchJobState,
+  startHeartbeatTimer,
+  DEFAULT_HEARTBEAT_INTERVAL_MS
 } = require('../run');
 const { generateBlocosPorGestor } = require('./visualBlocks');
 const { ensureDashboardsForAllGestores, atomicRefreshAllDashboards } = require('./gestorDashboards');
@@ -119,10 +121,12 @@ async function runFullUpdateJob(options = {}) {
     }
   }
   const jobControl = await acquireJobStateLock(sheets, spreadsheetId, {
-    leaseMs: Number(process.env.JOB_LEASE_MS || 10 * 60 * 1000),
+    leaseMs: 60000,
     resetCursor
   });
   console.log('[diagnostic] acquired job lock', { jobId: jobControl.jobId, generation: jobControl.generation, leaseUntil: jobControl.leaseUntil });
+
+  const heartbeatTimer = await startHeartbeatTimer(sheets, spreadsheetId, jobControl, DEFAULT_HEARTBEAT_INTERVAL_MS);
 
   const startedAt = Date.now();
   let totalProcessed = 0;
@@ -131,6 +135,7 @@ async function runFullUpdateJob(options = {}) {
 
   while (!finished && iteration < maxIterations) {
     if (Date.now() - startedAt >= maxMs) {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
       await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
       return {
         ok: true,
@@ -154,6 +159,7 @@ async function runFullUpdateJob(options = {}) {
     } catch (error) {
       if (String(error && error.code || '') === 'JOB_INTERRUPTED') {
         console.log('[diagnostic] runUpdateJob interrupted by newer job at iteration', iteration);
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
         await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
         return {
           ok: true,
@@ -169,6 +175,7 @@ async function runFullUpdateJob(options = {}) {
       const isQuota = msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(error && error.status) === '429' || String(error && error.code) === '429';
 
       if (isQuota) {
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
         await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
         return {
           ok: true,
@@ -180,6 +187,7 @@ async function runFullUpdateJob(options = {}) {
         };
       }
 
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
       await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
       return {
         ok: false,
@@ -193,6 +201,7 @@ async function runFullUpdateJob(options = {}) {
     }
 
     if (!result || !result.ok) {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
       await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
       return {
         ok: false,
@@ -209,6 +218,7 @@ async function runFullUpdateJob(options = {}) {
     console.log('[diagnostic] assertJobStateActive', { iteration, active });
     if (!active.active) {
       console.log('[diagnostic] job no longer active, stopping', { iteration });
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
       await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
       return {
         ok: true,
@@ -225,6 +235,7 @@ async function runFullUpdateJob(options = {}) {
   }
 
   if (!finished) {
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
     await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
     return {
       ok: true,
@@ -253,6 +264,7 @@ async function runFullUpdateJob(options = {}) {
 
   if (!dashboardResult || dashboardResult.ok === false) {
     if (dashboardResult && String(dashboardResult.error || '').includes('mais recente')) {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
       await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
       return {
         ok: true,
@@ -264,6 +276,7 @@ async function runFullUpdateJob(options = {}) {
       };
     }
 
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
     await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
     return {
       ok: false,
@@ -276,6 +289,7 @@ async function runFullUpdateJob(options = {}) {
     };
   }
 
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
   await finishJobState(sheets, spreadsheetId, jobControl, 'idle');
 
   return {
