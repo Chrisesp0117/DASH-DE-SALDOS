@@ -387,6 +387,52 @@ module.exports = async (req, res) => {
       statusText.textContent = text;
     }
 
+    function describeLockState(json) {
+      const lockState = String(json && json.lockState || '').trim();
+      const leaseRemainingMs = Number(json && json.leaseRemainingMs || 0);
+      const heartbeatAgeMs = json && json.heartbeatAgeMs !== null && json.heartbeatAgeMs !== undefined
+        ? Number(json.heartbeatAgeMs)
+        : null;
+
+      if (lockState === 'active') {
+        return {
+          label: '⏳ Em Progresso',
+          icon: '⌛',
+          text: `A atualização está em andamento. Restam ${Math.max(0, Math.ceil(leaseRemainingMs / 1000))}s no lock.`,
+          disabled: true,
+          kind: 'active'
+        };
+      }
+
+      if (lockState === 'active_stale') {
+        return {
+          label: '⚠️ Lock Ativo',
+          icon: '⌛',
+          text: `O job ainda está marcado como rodando, mas o heartbeat está antigo (${heartbeatAgeMs ? Math.ceil(heartbeatAgeMs / 1000) : '?'}s). Pode estar travado.`,
+          disabled: false,
+          kind: 'stale'
+        };
+      }
+
+      if (lockState === 'expired') {
+        return {
+          label: '⚠️ Lock Expirado',
+          icon: '⏰',
+          text: 'O job estava rodando, mas o lease já expirou. O próximo clique deve liberar normalmente, ou use Forçar se quiser tomar o lock.',
+          disabled: false,
+          kind: 'expired'
+        };
+      }
+
+      return {
+        label: '✅ Pronto',
+        icon: '✨',
+        text: 'Nenhuma atualização em andamento.',
+        disabled: false,
+        kind: 'idle'
+      };
+    }
+
     async function waitForIdleAndRetry(delayMs = 2000, maxWaitMs = 10 * 60 * 1000) {
       const startedAt = Date.now();
 
@@ -426,27 +472,26 @@ module.exports = async (req, res) => {
         const state = json && json.state ? json.state : {};
         const total = Number(json && json.totalClients ? json.totalClients : 0);
         const cursor = Number(state.cursor || 0);
-        const running = String(state.status || '') === 'running' && Number(state.leaseUntil || 0) > Date.now();
+        const lockView = describeLockState(json);
+        const running = lockView.kind === 'active' || lockView.kind === 'stale';
 
         const pct = total > 0 ? Math.round((cursor / total) * 100) : 0;
         progressFill.style.width = pct + '%';
 
-        if (running) {
-          renderRunningState('⏳ Em Progresso', '⌛', 'A atualização está em andamento. Aguarde...');
+        if (manualRunActive && !running) {
+          renderRunningState('⏳ Continuando', '⌛', 'Processando o próximo lote...');
           startBtn.disabled = true;
           refreshBtn.disabled = true;
+        } else if (running) {
+          renderRunningState(lockView.label, lockView.icon, lockView.text);
+          startBtn.disabled = !forceCheck.checked;
+          refreshBtn.disabled = true;
         } else {
-          if (manualRunActive) {
-            renderRunningState('⏳ Continuando', '⌛', 'Processando o próximo lote...');
-            startBtn.disabled = true;
-            refreshBtn.disabled = true;
-          } else {
-            statusEl.textContent = '✅ Pronto';
-            statusIcon.textContent = '✨';
-            statusText.textContent = state.updatedAt ? 'Última: ' + state.updatedAt : 'Nenhuma execução recente';
-            startBtn.disabled = false;
-            refreshBtn.disabled = false;
-          }
+          statusEl.textContent = lockView.label;
+          statusIcon.textContent = lockView.icon;
+          statusText.textContent = state.updatedAt ? `Última: ${state.updatedAt}` : lockView.text;
+          startBtn.disabled = false;
+          refreshBtn.disabled = false;
         }
 
         counterEl.textContent = cursor + ' / ' + total;
@@ -476,7 +521,12 @@ module.exports = async (req, res) => {
         const json = await res.json().catch(() => ({}));
 
         if (res.status === 409) {
-          showMessage('⚠️ Já existe uma atualização em progresso. Marque "Forçar" para ignorar o lock e reiniciar.', 'error');
+          const lockView = describeLockState(json);
+          if (lockView.kind === 'stale' || lockView.kind === 'expired') {
+            showMessage('⚠️ Há um lock antigo ou expirado. Marque "Forçar" para tomar o controle e reiniciar.', 'error');
+          } else {
+            showMessage('⚠️ Já existe uma atualização em progresso. Aguarde terminar ou marque "Forçar" para tomar o lock.', 'error');
+          }
           setManualState(false);
         } else if (!res.ok) {
           showMessage('❌ ' + ((json && json.error) ? json.error : 'Erro ao iniciar'), 'error');

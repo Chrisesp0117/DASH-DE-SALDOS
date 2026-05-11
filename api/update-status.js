@@ -4,6 +4,46 @@ const { assertCronAuth, sendJson } = require('../src/core/serverlessJobs');
 const { getSheets } = require('../src/services/sheets');
 const { readJobState } = require('../src/run');
 
+function classifyLockState(state) {
+  const now = Date.now();
+  const leaseUntil = Number(state && state.leaseUntil || 0);
+  const heartbeatAt = state && state.heartbeatAt ? Date.parse(state.heartbeatAt) : 0;
+  const status = String(state && state.status || '').trim();
+
+  const running = status === 'running' && leaseUntil > now;
+  const leaseRemainingMs = Math.max(0, leaseUntil - now);
+  const heartbeatAgeMs = heartbeatAt > 0 ? Math.max(0, now - heartbeatAt) : null;
+  const staleByHeartbeat = heartbeatAgeMs !== null && heartbeatAgeMs > 60 * 1000;
+
+  if (running) {
+    return {
+      lockState: staleByHeartbeat ? 'active_stale' : 'active',
+      running: true,
+      leaseRemainingMs,
+      heartbeatAgeMs,
+      staleByHeartbeat
+    };
+  }
+
+  if (status === 'running' && leaseUntil <= now) {
+    return {
+      lockState: 'expired',
+      running: false,
+      leaseRemainingMs: 0,
+      heartbeatAgeMs,
+      staleByHeartbeat
+    };
+  }
+
+  return {
+    lockState: 'idle',
+    running: false,
+    leaseRemainingMs: 0,
+    heartbeatAgeMs,
+    staleByHeartbeat: false
+  };
+}
+
 module.exports = async (req, res) => {
   const authResponse = assertCronAuth(req, res);
   if (authResponse) {
@@ -14,6 +54,7 @@ module.exports = async (req, res) => {
     const sheets = await getSheets();
     const spreadsheetId = process.env.SPREADSHEET_ID;
     const state = await readJobState(sheets, spreadsheetId);
+    const lockMeta = classifyLockState(state);
 
     const configs = await sheets.spreadsheets.values.get({
       spreadsheetId,
@@ -21,11 +62,14 @@ module.exports = async (req, res) => {
     });
 
     const totalClients = (configs.data.values || []).length;
-    const running = String(state.status || '') === 'running' && Number(state.leaseUntil || 0) > Date.now();
 
     return sendJson(res, {
       ok: true,
-      running,
+      running: lockMeta.running,
+      lockState: lockMeta.lockState,
+      leaseRemainingMs: lockMeta.leaseRemainingMs,
+      heartbeatAgeMs: lockMeta.heartbeatAgeMs,
+      staleByHeartbeat: lockMeta.staleByHeartbeat,
       state,
       totalClients
     }, 200);
