@@ -29,9 +29,9 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const rawBatchSize = req.query?.batchSize || getQueryValue(req && req.url, 'batchSize') || process.env.UPDATE_BATCH_SIZE || 5;
+    const rawBatchSize = req.query?.batchSize || getQueryValue(req && req.url, 'batchSize') || process.env.UPDATE_BATCH_SIZE || 20;
     const batchSize = Math.max(5, Number(rawBatchSize));
-    const maxMs = Math.max(10000, Number(process.env.CRON_MAX_RUNTIME_MS || 45000));
+    const maxMs = Math.max(10000, Number(process.env.CRON_MAX_RUNTIME_MS || 120000));
 
     const resetRaw = req.query?.reset || getQueryValue(req && req.url, 'reset');
     const resetCursor = String(resetRaw || '').toLowerCase() === '1' || String(resetRaw || '').toLowerCase() === 'true';

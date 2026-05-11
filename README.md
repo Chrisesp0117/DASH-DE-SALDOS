@@ -36,16 +36,16 @@ Autenticação: query `secret` ou `token`, ou header `x-cron-secret` / `x-cron-j
 
 Comportamento típico:
 
-- Cada chamada processa até esgotar o orçamento de tempo (`CRON_MAX_RUNTIME_MS`, padrão 45000 ms na função) e pode retornar `finished: false` com `reason` (por exemplo `time_budget_reached`). O próximo disparo do cron continua a partir do cursor na planilha.
+- Cada chamada processa até esgotar o orçamento de tempo (`CRON_MAX_RUNTIME_MS`, padrão 120000 ms na função) e pode retornar `finished: false` com `reason` (por exemplo `time_budget_reached`). O próximo disparo do cron continua a partir do cursor na planilha.
 - Quando `finished: true`, a DATABASE foi percorrida e os agregados/dashboards foram atualizados nessa execução.
 
-**Frequência sugerida:** intervalo curto o suficiente para vários ticks completarem um ciclo (por exemplo a cada 2–5 minutos), ou aumente `batchSize` na query se as APIs aguentarem.
+**Frequência sugerida:** intervalo curto o suficiente para vários ticks completarem um ciclo (por exemplo a cada 2–5 minutos), com `batchSize` moderado para reduzir concorrência entre usuários.
 
 Query opcionais em `update-full`:
 
 | Parâmetro | Efeito |
 |-----------|--------|
-| `batchSize` | Tamanho do lote por iteração interna (mínimo 5 neste endpoint). |
+| `batchSize` | Tamanho do lote por iteração interna (mínimo 5 neste endpoint). Sugestão multiusuário: 20–50. |
 | `reset=true` ou `reset=1` | Inicia um ciclo novo do zero (`cursor` zerado ao adquirir o lock). |
 | `databaseOnly=true` ou `databaseOnly=1` | Só fase DATABASE até concluir; não roda supervisor/dashboards nesta execução. Use em conjunto com o cron de dashboards abaixo. |
 
@@ -140,10 +140,14 @@ META_TOKEN=seu_meta_token
 CRON_SECRET=segredo_compartilhado_para_cron
 
 # Opcional: tempo máximo por invocação de update-full (ms)
-# CRON_MAX_RUNTIME_MS=45000
+# CRON_MAX_RUNTIME_MS=120000
 
 # Opcional: tamanho de lote padrão
-# UPDATE_BATCH_SIZE=5
+# UPDATE_BATCH_SIZE=50
+
+# Opcional: heartbeat do lock do JOB_STATE
+# HEARTBEAT_INTERVAL_MS=20000
+# HEARTBEAT_MISSED_COUNT=3
 
 # Ambiente
 NODE_ENV=production

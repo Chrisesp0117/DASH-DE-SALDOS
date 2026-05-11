@@ -17,9 +17,9 @@ const DATABASE_HEADERS = [
 const JOB_STATE_RANGE = 'JOB_STATE!A1:M1';
 const JOB_STATE_LEGACY_CURSOR_RANGE = 'JOB_STATE!A1';
 
-// Heartbeat configuration
-const DEFAULT_HEARTBEAT_INTERVAL_MS = 20 * 1000; // 20s
-const DEFAULT_MAX_MISSED_HEARTBEATS = 3; // stale if missing 3 heartbeats
+// Heartbeat configuration (configurable via env)
+const DEFAULT_HEARTBEAT_INTERVAL_MS = Number(process.env.HEARTBEAT_INTERVAL_MS || 20 * 1000); // default 20s
+const DEFAULT_MAX_MISSED_HEARTBEATS = Number(process.env.HEARTBEAT_MISSED_COUNT || 3); // stale if missing this many heartbeats
 const HEARTBEAT_STALE_THRESHOLD_MS = DEFAULT_HEARTBEAT_INTERVAL_MS * DEFAULT_MAX_MISSED_HEARTBEATS;
 
 function createDefaultJobState() {
@@ -262,6 +262,24 @@ async function acquireJobStateLock(sheets, spreadsheetId, options = {}) {
     takeoverBy: '',
     auditPointer: 'JOB_HISTORY'
   };
+
+  // Re-read immediately before writing to reduce race window: if another
+  // process acquired the lock in the meantime, abort unless caller set
+  // `force: true`.
+  try {
+    const fresh = await readJobState(sheets, spreadsheetId);
+    const running = String(fresh.status || '') === 'running' && Number(fresh.leaseUntil || 0) > Date.now();
+    if (running && !options.force) {
+      const err = new Error('Job already running by another worker');
+      err.code = 'JOB_ALREADY_RUNNING';
+      err.state = fresh;
+      throw err;
+    }
+  } catch (e) {
+    // If readJobState threw for an unexpected reason, rethrow
+    if (e && e.code === 'JOB_ALREADY_RUNNING') throw e;
+    // otherwise ignore and continue to attempt write
+  }
 
   await writeJobState(sheets, spreadsheetId, state);
   // append history

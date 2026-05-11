@@ -73,7 +73,7 @@ module.exports = async (req, res) => {
   }
 
   const batchSizeParam = req && req.query ? req.query.batchSize : getQueryValue(req, 'batchSize');
-  const batchSize = Math.max(10, Number(batchSizeParam || 50));
+  const batchSize = Math.max(10, Number(batchSizeParam || process.env.UPDATE_BATCH_SIZE || 50));
   const forceParam = req && req.query ? req.query.force : getQueryValue(req, 'force');
   const force = String(forceParam || '').toLowerCase() === 'true' || String(forceParam || '') === '1';
 
@@ -94,7 +94,7 @@ module.exports = async (req, res) => {
 
       const result = await runFullUpdateJob({
         batchSize,
-        maxMs: 60000,
+        maxMs: Math.max(60000, Number(process.env.CRON_MAX_RUNTIME_MS || 120000)),
         rejectIfRunning: true,
         force,
         resetCursor,

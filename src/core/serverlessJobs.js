@@ -55,6 +55,7 @@ function getCronSecretFromRequest(req) {
   const urlSecret = (() => {
     try {
       const rawUrl = String(req && req.url || '/');
+      console.log('[cron-auth-debug] rawUrl:', rawUrl.substring(0, 100));
       // Handle both full URLs and paths
       let url;
       if (rawUrl.startsWith('http')) {
@@ -62,22 +63,36 @@ function getCronSecretFromRequest(req) {
       } else {
         // For paths, use the query string parsing directly
         const qIdx = rawUrl.indexOf('?');
-        if (qIdx === -1) return '';
+        if (qIdx === -1) {
+          console.log('[cron-auth-debug] no query string found');
+          return '';
+        }
         const queryString = rawUrl.substring(qIdx + 1);
+        console.log('[cron-auth-debug] queryString:', queryString.substring(0, 50));
         const params = new URLSearchParams(queryString);
         return params.get('secret') || params.get('token') || '';
       }
       return url.searchParams.get('secret') || url.searchParams.get('token') || '';
-    } catch (_) {
+    } catch (error) {
+      console.error('[cron-auth-debug] error parsing URL:', error.message);
       return '';
     }
   })();
 
+  const headerSecret = readHeader(req, 'x-cron-secret');
+  const querySecret = req.query?.secret || req.query?.token;
+  const tokenSecret = '';
+
+  console.log('[cron-auth-debug] sources:', {
+    urlSecret: !!urlSecret,
+    headerSecret: !!headerSecret,
+    querySecret: !!querySecret
+  });
+
   return (
-    readHeader(req, 'x-cron-secret') ||
+    headerSecret ||
     readHeader(req, 'x-cron-job-secret') ||
-    req.query?.secret ||
-    req.query?.token ||
+    querySecret ||
     urlSecret ||
     ''
   );
@@ -87,15 +102,23 @@ function assertCronAuth(req, res) {
   const expected = process.env.CRON_SECRET || '';
 
   if (!expected) {
+    console.warn('⚠️ CRON_SECRET não configurado no ambiente');
     return null;
   }
 
   const incoming = String(getCronSecretFromRequest(req) || '').trim();
 
   if (incoming !== expected) {
+    console.error('❌ Falha de autenticação do cron:', {
+      incoming: incoming ? incoming.substring(0, 10) + '...' : '(vazio)',
+      expectedLength: expected.length,
+      incomingLength: incoming.length,
+      match: incoming === expected
+    });
     return sendJson(res, { ok: false, error: 'Unauthorized cron request' }, 401);
   }
 
+  console.log('✅ Autenticação do cron aceita');
   return null;
 }
 
@@ -107,9 +130,9 @@ async function runUpdateJob(options = {}) {
 }
 
 async function runFullUpdateJob(options = {}) {
-  const batchSize = Math.max(1, Number(options.batchSize || process.env.UPDATE_BATCH_SIZE || 10));
-  const maxIterations = Math.max(1, Number(options.maxIterations || 200));
-  const maxMs = Math.max(5000, Number(options.maxMs || 45000));
+  const batchSize = Math.max(1, Number(options.batchSize || process.env.UPDATE_BATCH_SIZE || 50));
+  const maxIterations = Math.max(1, Number(options.maxIterations || process.env.UPDATE_MAX_ITERATIONS || 10));
+  const maxMs = Math.max(5000, Number(options.maxMs || process.env.CRON_MAX_RUNTIME_MS || 120000));
   const includeSupervisor = options.includeSupervisor !== false;
   const includeDashboards = options.includeDashboards !== false;
   const rejectIfRunning = options.rejectIfRunning !== false;
@@ -131,11 +154,24 @@ async function runFullUpdateJob(options = {}) {
       };
     }
   }
-  const jobControl = await acquireJobStateLock(sheets, spreadsheetId, {
-    leaseMs: 60000,
-    resetCursor
-  });
-  console.log('[diagnostic] acquired job lock', { jobId: jobControl.jobId, generation: jobControl.generation, leaseUntil: jobControl.leaseUntil });
+  let jobControl;
+  try {
+    jobControl = await acquireJobStateLock(sheets, spreadsheetId, {
+      leaseMs: 60000,
+      resetCursor
+    });
+    console.log('[diagnostic] acquired job lock', { jobId: jobControl.jobId, generation: jobControl.generation, leaseUntil: jobControl.leaseUntil });
+  } catch (e) {
+    if (e && e.code === 'JOB_ALREADY_RUNNING' && e.state) {
+      return {
+        ok: false,
+        running: true,
+        reason: 'job_already_running',
+        state: e.state
+      };
+    }
+    throw e;
+  }
 
   const heartbeatTimer = await startHeartbeatTimer(sheets, spreadsheetId, jobControl, DEFAULT_HEARTBEAT_INTERVAL_MS);
 
