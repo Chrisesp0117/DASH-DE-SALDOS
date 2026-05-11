@@ -387,6 +387,16 @@ module.exports = async (req, res) => {
       statusText.textContent = text;
     }
 
+    function renderLoadingState(message = 'Carregando status...') {
+      statusEl.textContent = '⏳ Carregando';
+      statusIcon.textContent = '⌛';
+      statusText.textContent = message;
+      counterEl.textContent = '— / —';
+      progressFill.style.width = '12%';
+      startBtn.disabled = true;
+      refreshBtn.disabled = true;
+    }
+
     function describeLockState(json) {
       const lockState = String(json && json.lockState || '').trim();
       const leaseRemainingMs = Number(json && json.leaseRemainingMs || 0);
@@ -466,9 +476,10 @@ module.exports = async (req, res) => {
     }
 
     async function refresh() {
+      renderLoadingState('Carregando status da atualização...');
       try {
         const res = await fetch(statusUrl, { cache: 'no-store' });
-        const json = await res.json();
+        const json = await res.json().catch(() => ({}));
         const state = json && json.state ? json.state : {};
         const total = Number(json && json.totalClients ? json.totalClients : 0);
         const cursor = Number(state.cursor || 0);
@@ -497,7 +508,9 @@ module.exports = async (req, res) => {
         counterEl.textContent = cursor + ' / ' + total;
       } catch (e) {
         statusEl.textContent = '❌ Erro';
-        statusText.textContent = 'Falha ao conectar. Tente novamente.';
+        statusIcon.textContent = '⚠️';
+        statusText.textContent = 'Falha ao conectar. A contagem não pôde ser carregada.';
+        counterEl.textContent = '— / —';
         startBtn.disabled = false;
         refreshBtn.disabled = false;
       }
@@ -525,7 +538,7 @@ module.exports = async (req, res) => {
           if (lockView.kind === 'stale' || lockView.kind === 'expired') {
             showMessage('⚠️ Há um lock antigo ou expirado. Marque "Forçar" para tomar o controle e reiniciar.', 'error');
           } else {
-            showMessage('⚠️ Já existe uma atualização em progresso. Aguarde terminar ou marque "Forçar" para tomar o lock.', 'error');
+            showMessage('ℹ️ Já existe uma atualização em progresso. A tela continua atualizando a contagem enquanto o lote roda.', 'success');
           }
           setManualState(false);
         } else if (!res.ok) {
