@@ -56,6 +56,8 @@ async function isJobActiveNow() {
 
 function isJsonRequest(req) {
   const method = String(req && req.method || 'GET').toUpperCase();
+  const forceParam = req && req.query ? req.query.force : getQueryValue(req && req.url, 'force');
+  const force = String(forceParam || '').toLowerCase() === 'true' || String(forceParam || '') === '1';
   if (method === 'POST') return true;
   const accept = String(req && req.headers && (req.headers.accept || req.headers.Accept) || '').toLowerCase();
   return accept.includes('application/json');
@@ -83,7 +85,7 @@ module.exports = async (req, res) => {
         return sendJsonResponse(res, { ok: false, running: true, state: active.state }, 409);
       }
 
-      const result = await runFullUpdateJob({ batchSize, maxMs: 45000 });
+      const result = await runFullUpdateJob({ batchSize, maxMs: 45000, rejectIfRunning: true, force });
       return sendJsonResponse(res, result, result && result.ok === false ? 500 : 200);
     } catch (error) {
       const payload = {
@@ -93,38 +95,6 @@ module.exports = async (req, res) => {
           : `Erro ao atualizar: ${error && error.message ? error.message : 'desconhecido'}`
       };
       return sendJsonResponse(res, payload, 500);
-    }
-  }
-
-  let ok = true;
-  let message = 'Atualização concluída com sucesso.';
-  let finished = false;
-  let processedTotal = 0;
-
-  try {
-    const result = await runFullUpdateJob({ batchSize, maxMs: 45000 });
-
-    if (!result || !result.ok) {
-      ok = false;
-      message = 'Atualização retornou status inesperado.';
-    } else {
-      processedTotal = Number(result.totalProcessed || 0);
-      finished = result.finished === true;
-
-      if (finished) {
-        message = `Atualização concluída com sucesso. Registros processados: ${processedTotal}.`;
-      } else if (result.reason === 'time_budget_reached') {
-        message = 'Atualização iniciada e parcialmente concluída. Os próximos lotes seguem automaticamente no cron.';
-      } else {
-        message = 'Atualização iniciada e parcialmente concluída. Os próximos lotes seguem automaticamente no cron.';
-      }
-    }
-  } catch (error) {
-    ok = false;
-    if (isQuotaExceededError(error)) {
-      message = 'Google Sheets com limite de leitura por minuto. Aguarde ~1 minuto e tente novamente.';
-    } else {
-      message = `Erro ao atualizar: ${error && error.message ? error.message : 'desconhecido'}`;
     }
   }
 
@@ -192,32 +162,65 @@ module.exports = async (req, res) => {
 </head>
 <body>
   <div class="container">
-    <div class="spinner"></div>
-    <h1>Atualizando Planilha</h1>
+    <h1>Atualização Manual</h1>
     <div class="status">
-      <p>${ok ? 'Processo executado.' : 'Falha na execução.'}</p>
-      <p><strong>${message.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</strong></p>
-      <p style="margin-top: 10px; font-size: 12px; color: #999;">Esta janela fechará automaticamente.</p>
+      <p id="status">Carregando status...</p>
+      <p><strong id="counter">0/0</strong></p>
+      <button id="startBtn" style="margin-top:14px">Atualizar agora</button>
+      <p class="hidden" id="hint" style="margin-top: 10px; font-size: 12px; color: #999;"></p>
     </div>
   </div>
 
   <script>
-    setTimeout(() => {
-      try {
-        window.open('', '_self');
-        window.close();
-      } catch (e) {
-        // ignore
-      }
+    const statusEl = document.getElementById('status');
+    const counterEl = document.getElementById('counter');
+    const startBtn = document.getElementById('startBtn');
+    const hint = document.getElementById('hint');
+    const statusUrl = '/api/update-status?secret=${encodeURIComponent(secret)}';
+    const startUrl = '/api/update-now?secret=${encodeURIComponent(secret)}${force ? '&force=true' : ''}';
 
-      setTimeout(() => {
-        try {
-          window.location.replace('about:blank');
-        } catch (e) {
-          // ignore
+    async function refresh() {
+      try {
+        const res = await fetch(statusUrl, { cache: 'no-store' });
+        const json = await res.json();
+        const state = json && json.state ? json.state : {};
+        const total = Number(json && json.totalClients ? json.totalClients : 0);
+        const cursor = Number(state.cursor || 0);
+        const running = String(state.status || '') === 'running' && Number(state.leaseUntil || 0) > Date.now();
+
+        statusEl.textContent = running ? 'Atualização automática/manual em progresso...' : 'Idle';
+        counterEl.textContent = cursor + '/' + total;
+        startBtn.disabled = running;
+        hint.textContent = running ? 'Atualização em andamento. Aguarde finalizar.' : '';
+        hint.classList.toggle('hidden', !running);
+      } catch (e) {
+        statusEl.textContent = 'Erro ao ler status';
+      }
+    }
+
+    async function start() {
+      startBtn.disabled = true;
+      try {
+        const res = await fetch(startUrl, { method: 'POST' });
+        const json = await res.json().catch(() => ({}));
+        if (res.status === 409) {
+          hint.textContent = 'Já existe uma atualização em progresso.';
+          hint.classList.remove('hidden');
+        } else if (!res.ok) {
+          hint.textContent = (json && json.error) ? json.error : 'Erro ao iniciar';
+          hint.classList.remove('hidden');
         }
-      }, 250);
-    }, ${ok ? 1200 : 2500});
+      } catch (e) {
+        hint.textContent = 'Erro ao iniciar atualização.';
+        hint.classList.remove('hidden');
+      } finally {
+        setTimeout(refresh, 500);
+      }
+    }
+
+    startBtn.addEventListener('click', start);
+    refresh();
+    setInterval(refresh, 2000);
   </script>
 </body>
 </html>

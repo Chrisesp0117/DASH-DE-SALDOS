@@ -26,10 +26,18 @@ module.exports = async (req, res) => {
       batchSize,
       maxMs,
       includeSupervisor: true,
-      includeDashboards: true
+      includeDashboards: true,
+      rejectIfRunning: true
     });
 
     if (!result || !result.ok) {
+      if (result && result.running) {
+        return sendJson(res, {
+          ok: false,
+          running: true,
+          reason: result.reason || 'job_already_running'
+        }, 409);
+      }
       return sendJson(res, {
         ok: false,
         error: result && result.error ? result.error : 'Execução falhou'

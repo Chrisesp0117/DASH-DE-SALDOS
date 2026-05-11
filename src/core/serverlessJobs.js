@@ -3,7 +3,8 @@ const {
   run,
   acquireJobStateLock,
   assertJobStateActive,
-  finishJobState
+  finishJobState,
+  readJobState
 } = require('../run');
 const { generateBlocosPorGestor } = require('./visualBlocks');
 const { ensureDashboardsForAllGestores, atomicRefreshAllDashboards } = require('./gestorDashboards');
@@ -85,9 +86,24 @@ async function runFullUpdateJob(options = {}) {
   const maxMs = Math.max(5000, Number(options.maxMs || 45000));
   const includeSupervisor = options.includeSupervisor !== false;
   const includeDashboards = options.includeDashboards !== false;
+  const rejectIfRunning = options.rejectIfRunning !== false;
+  const force = options.force === true;
 
   const sheets = await getSheets();
   const spreadsheetId = process.env.SPREADSHEET_ID;
+
+  if (rejectIfRunning && !force) {
+    const current = await readJobState(sheets, spreadsheetId);
+    const running = String(current.status || '') === 'running' && Number(current.leaseUntil || 0) > Date.now();
+    if (running) {
+      return {
+        ok: false,
+        running: true,
+        reason: 'job_already_running',
+        state: current
+      };
+    }
+  }
   const jobControl = await acquireJobStateLock(sheets, spreadsheetId, {
     leaseMs: Number(process.env.JOB_LEASE_MS || 10 * 60 * 1000)
   });
