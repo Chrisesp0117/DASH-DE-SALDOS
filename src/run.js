@@ -6,10 +6,11 @@ const { getGoogleData } = require('./services/googleAds');
 const { getMetaData } = require('./services/meta');
 const { buildRow } = require('./core/calculator');
 const { generateBlocosPorGestor } = require('./core/visualBlocks');
+const { generateSupervisorAgg } = require('./core/aggregator');
 const { ensureDashboardsForAllGestores } = require('./core/gestorDashboards');
 
 const DATABASE_HEADERS = [
-  'Data', 'Cliente', 'Plataforma', 'Saldo', 'Gasto Ontem', 'Gasto Ontem', 'Dias restantes',
+  'Data', 'Cliente', 'Plataforma', 'Saldo', 'Gasto Ontem', 'Média Diária', 'Dias restantes',
   'Gestor', 'Supervisor', 'Status', 'Obs', 'DataISO', 'Identificador'
 ];
 
@@ -341,10 +342,15 @@ async function ensureJobStateSheetExists(sheets, spreadsheetId) {
   });
 }
 
-async function clearDatabaseData(sheets, spreadsheetId) {
+async function clearDatabaseTail(sheets, spreadsheetId, totalRows, maxRows = 10000) {
+  const startRow = Math.max(2, Number(totalRows || 0) + 2);
+  if (!Number.isFinite(startRow) || startRow > maxRows) {
+    return;
+  }
+
   await sheets.spreadsheets.values.clear({
     spreadsheetId,
-    range: 'DATABASE!A2:M10000'
+    range: `DATABASE!A${startRow}:M${maxRows}`
   });
 }
 
@@ -519,7 +525,7 @@ async function processClienteRow(row, indices) {
 
 async function run(options = {}) {
   const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
-  const batchSize = Math.max(1, Number(options.batchSize || process.env.UPDATE_BATCH_SIZE || 1));
+  const batchSize = Math.max(1, Number(options.batchSize || process.env.UPDATE_BATCH_SIZE || 10));
   const skipDashboards = options.skipDashboards === true;
   let jobControl = options.jobControl || null;
 
@@ -604,15 +610,12 @@ async function run(options = {}) {
   const batchClientes = clientes.slice(cursor, cursor + batchSize);
 
   if (cursor === 0) {
-    await clearDatabaseData(sheets, process.env.SPREADSHEET_ID);
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: process.env.SPREADSHEET_ID,
-      range: 'DATABASE!A1',
-      valueInputOption: 'RAW',
-      requestBody: {
+    await batchUpdateValues(sheets, process.env.SPREADSHEET_ID, [
+      {
+        range: 'DATABASE!A1',
         values: [DATABASE_HEADERS]
       }
-    });
+    ]);
 
     await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { cursor: 0 });
   }
@@ -623,50 +626,48 @@ async function run(options = {}) {
     return { ok: true, processed: 0, total: totalClientes, cursor: 0, nextCursor: 0, finished: true };
   }
 
-  const batchRows = await Promise.all(
-    batchClientes.map(async (row, batchIndex) => {
-      const active = await assertJobStateActive(sheets, process.env.SPREADSHEET_ID, jobControl);
-      if (!active.active) {
-        const err = new Error('Job interrompido por uma atualização mais recente.');
-        err.code = 'JOB_INTERRUPTED';
-        throw err;
-      }
+  const batchRows = [];
+  for (let batchIndex = 0; batchIndex < batchClientes.length; batchIndex += 1) {
+    const row = batchClientes[batchIndex];
+    const active = await assertJobStateActive(sheets, process.env.SPREADSHEET_ID, jobControl);
+    if (!active.active) {
+      const err = new Error('Job interrompido por uma atualização mais recente.');
+      err.code = 'JOB_INTERRUPTED';
+      throw err;
+    }
 
-      const index = cursor + batchIndex;
-      const values = await processClienteRow(row, {
-        idxCliente,
-        idxPlataforma,
-        idxCustomerId,
-        idxGestor,
-        idxSupervisor,
-        idxRevisao
-      });
+    const index = cursor + batchIndex;
+    const values = await processClienteRow(row, {
+      idxCliente,
+      idxPlataforma,
+      idxCustomerId,
+      idxGestor,
+      idxSupervisor,
+      idxRevisao
+    });
 
-      const cliente = (row[idxCliente] || '').trim();
-      console.log(`${cliente} processado`);
+    const cliente = (row[idxCliente] || '').trim();
+    console.log(`${cliente} processado`);
 
-      // diagnostic
-      try { console.log('[diagnostic] processed client', { cliente, index }); } catch (e) { }
+    // diagnostic
+    try { console.log('[diagnostic] processed client', { cliente, index }); } catch (e) { }
 
-      if (onProgress) {
-        await onProgress(index + 1, totalClientes, cliente);
-      }
+    if (onProgress) {
+      await onProgress(index + 1, totalClientes, cliente);
+    }
 
-      return { index, values };
-    })
-  );
+    batchRows.push({ index, values });
+  }
 
   const firstRowIndex = cursor + 2;
   const valuesToWrite = batchRows.map(item => item.values);
 
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: process.env.SPREADSHEET_ID,
-    range: `DATABASE!A${firstRowIndex}`,
-    valueInputOption: 'RAW',
-    requestBody: {
+  await batchUpdateValues(sheets, process.env.SPREADSHEET_ID, [
+    {
+      range: `DATABASE!A${firstRowIndex}`,
       values: valuesToWrite
     }
-  });
+  ]);
 
   await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { cursor: cursor + batchRows.length });
   console.log('[diagnostic] touched job state', { jobId: jobControl.jobId, generation: jobControl.generation, nextCursor: cursor + batchRows.length });
@@ -682,6 +683,12 @@ async function run(options = {}) {
   }
 
   await finishJobState(sheets, process.env.SPREADSHEET_ID, jobControl, 'idle');
+
+  try {
+    await clearDatabaseTail(sheets, process.env.SPREADSHEET_ID, totalClientes);
+  } catch (e) {
+    console.error('Erro ao limpar cauda da DATABASE:', e);
+  }
 
   try {
     await applyDatabaseFormatting(sheets, process.env.SPREADSHEET_ID, totalClientes);
@@ -703,6 +710,13 @@ async function run(options = {}) {
     console.log('SUPERVISOR atualizado');
   } catch (e) {
     console.error('Erro ao gerar SUPERVISOR:', e);
+  }
+
+  try {
+    await generateSupervisorAgg(sheets, process.env.SPREADSHEET_ID);
+    console.log('AGG_SUPERVISOR atualizado');
+  } catch (e) {
+    console.error('Erro ao gerar AGG_SUPERVISOR:', e);
   }
 
   if (!skipDashboards) {

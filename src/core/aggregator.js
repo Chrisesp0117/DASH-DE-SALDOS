@@ -6,9 +6,37 @@ function formatCurrencyBRL(value) {
   }).format(n);
 }
 
-function parseNum(v) {
-  const n = Number(v);
+function parseLocaleNumber(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  const raw = String(value || '').trim();
+  if (!raw) return 0;
+  let cleaned = raw.replace(/[^\d,.-]/g, '');
+  if (!cleaned) return 0;
+  if (cleaned.includes(',') && cleaned.includes('.')) {
+    cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+  } else if (cleaned.includes(',')) {
+    cleaned = cleaned.replace(',', '.');
+  }
+  const n = Number(cleaned);
   return Number.isFinite(n) ? n : 0;
+}
+
+function parseDias(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  const text = String(value || '').trim().toLowerCase();
+  if (!text || text === '-') return 0;
+  const diasMatch = text.match(/(\d+)\s*dias?/i);
+  const horasMatch = text.match(/(\d+)\s*horas?/i);
+  if (diasMatch || horasMatch) {
+    const dias = diasMatch ? Number(diasMatch[1]) : 0;
+    const horas = horasMatch ? Number(horasMatch[1]) : 0;
+    return dias + horas / 24;
+  }
+  return parseLocaleNumber(text);
 }
 
 async function ensureSheet(sheets, spreadsheetId, title) {
@@ -31,7 +59,7 @@ async function ensureSheet(sheets, spreadsheetId, title) {
 
 async function generateSupervisorAgg(sheets, spreadsheetId) {
   // Read DATABASE rows
-  const range = 'DATABASE!A2:O';
+  const range = 'DATABASE!A2:M';
   const res = await sheets.spreadsheets.values.get({ spreadsheetId, range });
   const rows = res.data.values || [];
 
@@ -40,11 +68,11 @@ async function generateSupervisorAgg(sheets, spreadsheetId) {
   for (const r of rows) {
     const supervisor = (r[8] || '').trim() || 'Sem Supervisor'; // col I (0-based 8)
     const gestor = (r[7] || '').trim() || '';
-    const saldo = parseNum(r[10]);
-    const gasto7d = parseNum(r[11]);
-    const media = parseNum(r[12]);
-    const dias = parseNum(r[13]);
-    const updated = r[14] || '';
+    const saldo = parseLocaleNumber(r[3]);
+    const gasto7d = parseLocaleNumber(r[4]);
+    const media = parseLocaleNumber(r[5]);
+    const dias = parseDias(r[6]);
+    const updated = r[11] || r[0] || '';
 
     if (!map.has(supervisor)) map.set(supervisor, { supervisor, gestores: new Set(), clientes: 0, totalSaldo: 0, totalGasto7d: 0, sumMedia: 0, sumDias: 0, lastUpdate: '' });
 

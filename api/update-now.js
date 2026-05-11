@@ -10,10 +10,11 @@ const { runFullUpdateJob } = require('../src/core/serverlessJobs');
 const { getSheets } = require('../src/services/sheets');
 const { readJobState } = require('../src/run');
 
-function getQueryValue(urlValue, key) {
+function getQueryValue(req, key) {
   try {
-    const base = 'https://dash-de-saldos.vercel.app';
-    const url = new URL(String(urlValue || '/'), base);
+    const host = String(req && req.headers && (req.headers.host || req.headers.Host) || 'dash-de-saldos.vercel.app');
+    const base = `https://${host}`;
+    const url = new URL(String(req && req.url || '/'), base);
     return url.searchParams.get(key) || '';
   } catch (_) {
     return '';
@@ -62,7 +63,7 @@ function isJsonRequest(req) {
 }
 
 module.exports = async (req, res) => {
-  const secretFromQuery = req && req.query ? String(req.query.secret || '') : getQueryValue(req && req.url, 'secret');
+  const secretFromQuery = req && req.query ? String(req.query.secret || '') : getQueryValue(req, 'secret');
   const secretFromHeader = req && req.headers ? String(req.headers['x-cron-secret'] || '') : '';
   const secret = secretFromQuery || secretFromHeader;
   const expectedSecret = process.env.CRON_SECRET || '';
@@ -71,9 +72,9 @@ module.exports = async (req, res) => {
     return sendHtml(res, '<h1>401 - Unauthorized</h1>', 401);
   }
 
-  const batchSizeParam = req && req.query ? req.query.batchSize : getQueryValue(req && req.url, 'batchSize');
+  const batchSizeParam = req && req.query ? req.query.batchSize : getQueryValue(req, 'batchSize');
   const batchSize = Math.max(1, Number(batchSizeParam || 5));
-  const forceParam = req && req.query ? req.query.force : getQueryValue(req && req.url, 'force');
+  const forceParam = req && req.query ? req.query.force : getQueryValue(req, 'force');
   const force = String(forceParam || '').toLowerCase() === 'true' || String(forceParam || '') === '1';
 
   const resetRaw = req && req.query ? req.query.reset : getQueryValue(req && req.url, 'reset');

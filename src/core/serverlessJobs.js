@@ -93,7 +93,7 @@ async function runUpdateJob(options = {}) {
 }
 
 async function runFullUpdateJob(options = {}) {
-  const batchSize = Math.max(1, Number(options.batchSize || process.env.UPDATE_BATCH_SIZE || 5));
+  const batchSize = Math.max(1, Number(options.batchSize || process.env.UPDATE_BATCH_SIZE || 10));
   const maxIterations = Math.max(1, Number(options.maxIterations || 200));
   const maxMs = Math.max(5000, Number(options.maxMs || 45000));
   const includeSupervisor = options.includeSupervisor !== false;

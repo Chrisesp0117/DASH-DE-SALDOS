@@ -6,6 +6,40 @@ function formatCurrencyBRL(value) {
   }).format(n);
 }
 
+function parseLocaleNumber(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  const raw = String(value || '').trim();
+  if (!raw) return 0;
+  let cleaned = raw.replace(/[^\d,.-]/g, '');
+  if (!cleaned) return 0;
+  if (cleaned.includes(',') && cleaned.includes('.')) {
+    cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+  } else if (cleaned.includes(',')) {
+    cleaned = cleaned.replace(',', '.');
+  }
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function parseDias(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  const text = String(value || '').trim().toLowerCase();
+  if (!text || text === '-') return null;
+  const diasMatch = text.match(/(\d+)\s*dias?/i);
+  const horasMatch = text.match(/(\d+)\s*horas?/i);
+  if (diasMatch || horasMatch) {
+    const dias = diasMatch ? Number(diasMatch[1]) : 0;
+    const horas = horasMatch ? Number(horasMatch[1]) : 0;
+    return dias + horas / 24;
+  }
+  const numeric = parseLocaleNumber(text);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
 function formatDiasHoras(diasValue) {
   const totalDias = Math.max(0, Number(diasValue || 0));
   const diasInteiros = Math.floor(totalDias);
@@ -21,7 +55,7 @@ async function generateTop10MenorSaldo(sheets, spreadsheetId) {
     const sheetTop10Only = (metaTop10Only.data.sheets || []).find(s => s.properties && s.properties.title === 'TOP10_MENOR_SALDO');
     const sheetIdTop10 = sheetTop10Only && sheetTop10Only.properties && sheetTop10Only.properties.sheetId;
   // Read DATABASE rows
-  const range = 'DATABASE!A2:N';
+  const range = 'DATABASE!A2:M';
   const res = await sheets.spreadsheets.values.get({ spreadsheetId, range });
   const rows = res.data.values || [];
   // saldo está na coluna K (índice 10)
@@ -30,18 +64,18 @@ async function generateTop10MenorSaldo(sheets, spreadsheetId) {
       cliente: r[1] || '',
       gestor: r[7] || '',
       supervisor: r[8] || '',
-      saldo: Number(r[10] || 0),
-      saldoFmt: formatCurrencyBRL(r[10]),
-      gastoMedio: Number(r[12] || 0),
-      gastoMedioFmt: formatCurrencyBRL(r[12]),
-      dias: Number(r[13] || 0),
-      diasFmt: formatDiasHoras(r[13])
+      saldo: parseLocaleNumber(r[3]),
+      saldoFmt: formatCurrencyBRL(parseLocaleNumber(r[3])),
+      gastoOntem: parseLocaleNumber(r[4]),
+      gastoOntemFmt: formatCurrencyBRL(parseLocaleNumber(r[4])),
+      dias: parseDias(r[6]),
+      diasFmt: parseDias(r[6]) === null ? '-' : formatDiasHoras(parseDias(r[6]))
     }))
     .sort((a, b) => a.saldo - b.saldo)
     .slice(0, 10);
 
   const HEADERS = ['Cliente', 'Gestor', 'Supervisor', 'Saldo', 'Gasto Ontem', 'Duração Estimada'];
-  const values = sorted.map(r => [r.cliente, r.gestor, r.supervisor, r.saldoFmt, r.gastoMedioFmt, r.diasFmt]);
+  const values = sorted.map(r => [r.cliente, r.gestor, r.supervisor, r.saldoFmt, r.gastoOntemFmt, r.diasFmt]);
 
   // Cria/atualiza aba TOP10_MENOR_SALDO
   await sheets.spreadsheets.batchUpdate({
@@ -70,12 +104,12 @@ async function generateTop10MenorSaldo(sheets, spreadsheetId) {
   const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets(properties(sheetId,title))' });
   const sheet = (meta.data.sheets || []).find(s => s.properties && s.properties.title === 'TOP10_MENOR_SALDO');
   const sheetId = sheet && sheet.properties && sheet.properties.sheetId;
-  if (sheetIdTop10 !== undefined) {
+  if (sheetId !== undefined) {
     let formatRequests = [];
     // Cabeçalho
     formatRequests.push({
       repeatCell: {
-        range: { sheetId: sheetIdTop10, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: HEADERS.length },
+        range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: HEADERS.length },
         cell: { userEnteredFormat: { backgroundColor: { red: 1, green: 0.8, blue: 0.8 }, textFormat: { bold: true } } },
         fields: 'userEnteredFormat(backgroundColor,textFormat.bold)'
       }
@@ -93,7 +127,7 @@ async function generateTop10MenorSaldo(sheets, spreadsheetId) {
       };
       formatRequests.push({
         repeatCell: {
-          range: { sheetId: sheetIdTop10, startRowIndex: i + 1, endRowIndex: i + 2, startColumnIndex: 0, endColumnIndex: HEADERS.length },
+          range: { sheetId, startRowIndex: i + 1, endRowIndex: i + 2, startColumnIndex: 0, endColumnIndex: HEADERS.length },
           cell: { userEnteredFormat: { backgroundColor: baseColor, borders } },
           fields: 'userEnteredFormat(backgroundColor,borders)'
         }
@@ -104,7 +138,7 @@ async function generateTop10MenorSaldo(sheets, spreadsheetId) {
       formatRequests.push({
         autoResizeDimensions: {
           dimensions: {
-            sheetId: sheetIdTop10,
+            sheetId,
             dimension: 'COLUMNS',
             startIndex: col,
             endIndex: col + 1
@@ -121,7 +155,7 @@ async function generateTop10MenorSaldo(sheets, spreadsheetId) {
 
 async function generateBlocosPorGestor(sheets, spreadsheetId) {
   // Read DATABASE rows
-  const range = 'DATABASE!A2:L';
+  const range = 'DATABASE!A2:M';
   const res = await sheets.spreadsheets.values.get({ spreadsheetId, range });
   const rows = res.data.values || [];
   const theme = {
@@ -145,12 +179,12 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
     const gestor = (r[7] || '').trim() || 'Sem Gestor';
     const plataforma = (r[2] || '').trim().toUpperCase();
     if (!map.has(gestor)) map.set(gestor, { GOOGLE: [], META: [] });
-    // Novos índices: 1=Cliente, 3=Saldo, 5=Gasto Ontem, 6=Dias restantes
+    // Novos índices: 1=Cliente, 3=Saldo, 4=Gasto Ontem, 6=Dias restantes
     if (plataforma === 'GOOGLE' || plataforma === 'META') {
       map.get(gestor)[plataforma].push({
         cliente: r[1] || '-',
         saldo: r[3] || '-',
-        gastoMedio: r[5] || '-',
+        gastoOntem: r[4] || '-',
         dias: r[6] || '-'
       });
     }
@@ -208,15 +242,15 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
       const g = plataformas.GOOGLE[i] || { cliente: '-', saldo: '-', gastoMedio: '-', dias: '-' };
       const m = plataformas.META[i] || { cliente: '-', saldo: '-', gastoMedio: '-', dias: '-' };
       values.push([
-        g.cliente, g.saldo, g.gastoMedio, g.dias, '',
-        m.cliente, m.saldo, m.gastoMedio, m.dias
+        g.cliente, g.saldo, g.gastoOntem, g.dias, '',
+        m.cliente, m.saldo, m.gastoOntem, m.dias
       ]);
 
       // Função para checar se deve destacar
-      function isCritical(diasStr) {
-        if (!diasStr || diasStr === '-') return false;
-        const diasNum = Number((diasStr + '').split(' ')[0].replace(/\D/g, ''));
-        return diasNum <= 7;
+      function isCritical(diasValue) {
+        if (!diasValue || diasValue === '-') return false;
+        const diasNum = parseDias(diasValue);
+        return diasNum > 0 && diasNum <= 7;
       }
       // Cores base por plataforma
       const googleBaseColor = (i % 2 === 0) ? theme.googleRowLight : theme.googleRowDark;
@@ -302,7 +336,9 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
   if (sheetId !== undefined) {
     // Atualiza sheetId nos requests
     for (const req of formatRequests) {
-      req.repeatCell.range.sheetId = sheetId;
+      if (req.repeatCell && req.repeatCell.range && (req.repeatCell.range.sheetId === null || req.repeatCell.range.sheetId === undefined)) {
+        req.repeatCell.range.sheetId = sheetId;
+      }
     }
     // Autoajuste de colunas (9 colunas)
     for (let col = 0; col < 9; col++) {
