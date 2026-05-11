@@ -7,6 +7,8 @@
 require('dotenv').config({ path: '.env' });
 
 const { runFullUpdateJob } = require('../src/core/serverlessJobs');
+const { getSheets } = require('../src/services/sheets');
+const { readJobState } = require('../src/run');
 
 function getQueryValue(urlValue, key) {
   try {
@@ -45,6 +47,20 @@ function isQuotaExceededError(error) {
   return msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(error && error.status) === '429' || String(error && error.code) === '429';
 }
 
+async function isJobActiveNow() {
+  const sheets = await getSheets();
+  const state = await readJobState(sheets, process.env.SPREADSHEET_ID);
+  const running = String(state.status || '') === 'running' && Number(state.leaseUntil || 0) > Date.now();
+  return { running, state };
+}
+
+function isJsonRequest(req) {
+  const method = String(req && req.method || 'GET').toUpperCase();
+  if (method === 'POST') return true;
+  const accept = String(req && req.headers && (req.headers.accept || req.headers.Accept) || '').toLowerCase();
+  return accept.includes('application/json');
+}
+
 module.exports = async (req, res) => {
   const secretFromQuery = req && req.query ? String(req.query.secret || '') : getQueryValue(req && req.url, 'secret');
   const secretFromHeader = req && req.headers ? String(req.headers['x-cron-secret'] || '') : '';
@@ -57,6 +73,28 @@ module.exports = async (req, res) => {
 
   const batchSizeParam = req && req.query ? req.query.batchSize : getQueryValue(req && req.url, 'batchSize');
   const batchSize = Math.max(1, Number(batchSizeParam || 5));
+
+  const method = String(req && req.method || 'GET').toUpperCase();
+
+  if (method === 'POST' || isJsonRequest(req)) {
+    try {
+      const active = await isJobActiveNow();
+      if (active.running) {
+        return sendJsonResponse(res, { ok: false, running: true, state: active.state }, 409);
+      }
+
+      const result = await runFullUpdateJob({ batchSize, maxMs: 45000 });
+      return sendJsonResponse(res, result, result && result.ok === false ? 500 : 200);
+    } catch (error) {
+      const payload = {
+        ok: false,
+        error: isQuotaExceededError(error)
+          ? 'Google Sheets com limite de leitura por minuto. Aguarde ~1 minuto e tente novamente.'
+          : `Erro ao atualizar: ${error && error.message ? error.message : 'desconhecido'}`
+      };
+      return sendJsonResponse(res, payload, 500);
+    }
+  }
 
   let ok = true;
   let message = 'Atualização concluída com sucesso.';
@@ -187,3 +225,25 @@ module.exports = async (req, res) => {
 
   return sendHtml(res, html, ok ? 200 : 500);
 };
+
+function sendJsonResponse(res, payload, statusCode = 200) {
+  if (res && typeof res.status === 'function' && typeof res.json === 'function') {
+    return res.status(statusCode).json(payload);
+  }
+
+  if (res && typeof res.setHeader === 'function' && typeof res.end === 'function') {
+    res.statusCode = statusCode;
+    res.setHeader('content-type', 'application/json; charset=utf-8');
+    res.end(JSON.stringify(payload));
+    return;
+  }
+
+  if (typeof Response !== 'undefined') {
+    return new Response(JSON.stringify(payload), {
+      status: statusCode,
+      headers: { 'content-type': 'application/json; charset=utf-8' }
+    });
+  }
+
+  return { statusCode, body: JSON.stringify(payload) };
+}
