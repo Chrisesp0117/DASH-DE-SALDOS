@@ -416,8 +416,10 @@ module.exports = async (req, res) => {
       }
     }
 
-    async function start() {
-      if (manualRunActive) {
+    async function start(options = {}) {
+      const internalRetry = options && options.internalRetry === true;
+
+      if (manualRunActive && !internalRetry) {
         return;
       }
 
@@ -439,7 +441,7 @@ module.exports = async (req, res) => {
         } else {
           if (json && json.finished === false) {
             showMessage('⏳ Atualização parcial concluída. Continuando automaticamente...', 'success');
-            manualRetryTimer = setTimeout(start, 1000);
+            manualRetryTimer = setTimeout(() => start({ internalRetry: true }), 1000);
             return;
           }
 
