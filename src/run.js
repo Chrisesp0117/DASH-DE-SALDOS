@@ -247,12 +247,11 @@ async function acquireJobStateLock(sheets, spreadsheetId, options = {}) {
     ? Number(current.cursor)
     : 0;
   const owner = await getOwnerId();
-  const shouldResetCursor = resetCursor || String(current.lastAction || '') === 'finish';
   const state = {
     status: 'running',
     jobId,
     generation: nextGeneration,
-    cursor: shouldResetCursor ? 0 : preservedCursor,
+    cursor: resetCursor ? 0 : preservedCursor,
     leaseUntil: now + leaseMs,
     updatedAt: toIsoNow(),
     owner,
@@ -864,8 +863,6 @@ async function run(options = {}) {
         values: [DATABASE_HEADERS]
       }
     ]);
-
-    await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { cursor: 0 });
   }
 
   if (!batchClientes.length) {

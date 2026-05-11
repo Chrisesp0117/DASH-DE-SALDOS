@@ -200,7 +200,8 @@ async function runFullUpdateJob(options = {}) {
       result = await runUpdateJob({
         batchSize,
         enableStartStatus: iteration === 1,
-        jobControl
+        jobControl,
+        cursor: iteration === 1 ? 0 : undefined
       });
       console.log('[diagnostic] runUpdateJob result', { iteration, result });
     } catch (error) {
