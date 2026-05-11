@@ -4,9 +4,19 @@ const { assertCronAuth, sendJson, runUpdateJob } = require('../../src/core/serve
 
 function getQueryValue(urlValue, key) {
   try {
-    const base = 'https://dash-de-saldos.vercel.app';
-    const url = new URL(String(urlValue || '/'), base);
-    return url.searchParams.get(key) || '';
+    const rawUrl = String(urlValue || '/');
+    // Handle both full URLs and paths
+    if (rawUrl.startsWith('http')) {
+      const url = new URL(rawUrl);
+      return url.searchParams.get(key) || '';
+    } else {
+      // For paths, use the query string parsing directly
+      const qIdx = rawUrl.indexOf('?');
+      if (qIdx === -1) return '';
+      const queryString = rawUrl.substring(qIdx + 1);
+      const params = new URLSearchParams(queryString);
+      return params.get(key) || '';
+    }
   } catch (_) {
     return '';
   }

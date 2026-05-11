@@ -55,8 +55,19 @@ function getCronSecretFromRequest(req) {
   const urlSecret = (() => {
     try {
       const rawUrl = String(req && req.url || '/');
-      const parsed = new URL(rawUrl, 'https://dash-de-saldos.vercel.app');
-      return parsed.searchParams.get('secret') || parsed.searchParams.get('token') || '';
+      // Handle both full URLs and paths
+      let url;
+      if (rawUrl.startsWith('http')) {
+        url = new URL(rawUrl);
+      } else {
+        // For paths, use the query string parsing directly
+        const qIdx = rawUrl.indexOf('?');
+        if (qIdx === -1) return '';
+        const queryString = rawUrl.substring(qIdx + 1);
+        const params = new URLSearchParams(queryString);
+        return params.get('secret') || params.get('token') || '';
+      }
+      return url.searchParams.get('secret') || url.searchParams.get('token') || '';
     } catch (_) {
       return '';
     }
