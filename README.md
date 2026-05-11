@@ -106,7 +106,7 @@ NODE_ENV=production
 ## Como usar
 
 1. Configure as variáveis de ambiente no Vercel.
-2. Agende `api/update` no `cron-job.org` (ex.: a cada 2 horas).
+2. Agende `api/cron/update-full` no `cron-job.org` (ex.: a cada 2 horas) e envie o `CRON_SECRET` via query (`?secret=...`) ou header (`x-cron-secret`).
 3. Agende `api/report` conforme desejado (ex.: 8h e 17h locais).
 
 ---

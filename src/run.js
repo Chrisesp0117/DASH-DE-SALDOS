@@ -119,7 +119,7 @@ async function acquireJobStateLock(sheets, spreadsheetId, options = {}) {
     status: 'running',
     jobId,
     generation: nextGeneration,
-    cursor: 0,
+    cursor: Number.isFinite(Number(current.cursor)) && Number(current.cursor) >= 0 ? Number(current.cursor) : 0,
     leaseUntil: now + leaseMs,
     updatedAt: toIsoNow()
   };
@@ -185,6 +185,26 @@ async function finishJobState(sheets, spreadsheetId, control, status = 'idle') {
     jobId: control.jobId,
     generation: control.generation,
     cursor: 0,
+    leaseUntil: 0,
+    updatedAt: toIsoNow()
+  });
+}
+
+async function releaseJobState(sheets, spreadsheetId, control, status = 'idle') {
+  if (!control) {
+    return;
+  }
+
+  const current = await readJobState(sheets, spreadsheetId);
+  if (!isSameJobState(current, control)) {
+    return;
+  }
+
+  await writeJobState(sheets, spreadsheetId, {
+    status,
+    jobId: control.jobId,
+    generation: control.generation,
+    cursor: Number.isFinite(Number(current.cursor)) && Number(current.cursor) >= 0 ? Number(current.cursor) : 0,
     leaseUntil: 0,
     updatedAt: toIsoNow()
   });
@@ -710,7 +730,8 @@ module.exports = {
   acquireJobStateLock,
   assertJobStateActive,
   touchJobState,
-  finishJobState
+  finishJobState,
+  releaseJobState
 };
 
 if (require.main === module) {

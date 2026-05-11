@@ -4,6 +4,7 @@ const {
   acquireJobStateLock,
   assertJobStateActive,
   finishJobState,
+  releaseJobState,
   readJobState
 } = require('../run');
 const { generateBlocosPorGestor } = require('./visualBlocks');
@@ -48,11 +49,22 @@ function sendJson(res, payload, statusCode = 200) {
 }
 
 function getCronSecretFromRequest(req) {
+  const urlSecret = (() => {
+    try {
+      const rawUrl = String(req && req.url || '/');
+      const parsed = new URL(rawUrl, 'https://dash-de-saldos.vercel.app');
+      return parsed.searchParams.get('secret') || parsed.searchParams.get('token') || '';
+    } catch (_) {
+      return '';
+    }
+  })();
+
   return (
     readHeader(req, 'x-cron-secret') ||
     readHeader(req, 'x-cron-job-secret') ||
     req.query?.secret ||
     req.query?.token ||
+    urlSecret ||
     ''
   );
 }
@@ -116,6 +128,7 @@ async function runFullUpdateJob(options = {}) {
 
   while (!finished && iteration < maxIterations) {
     if (Date.now() - startedAt >= maxMs) {
+      await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
       return {
         ok: true,
         finished: false,
@@ -152,6 +165,7 @@ async function runFullUpdateJob(options = {}) {
       const isQuota = msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(error && error.status) === '429' || String(error && error.code) === '429';
 
       if (isQuota) {
+        await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
         return {
           ok: true,
           finished: false,
@@ -162,6 +176,7 @@ async function runFullUpdateJob(options = {}) {
         };
       }
 
+      await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
       return {
         ok: false,
         finished: false,
@@ -174,6 +189,7 @@ async function runFullUpdateJob(options = {}) {
     }
 
     if (!result || !result.ok) {
+      await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
       return {
         ok: false,
         finished: false,
@@ -204,6 +220,7 @@ async function runFullUpdateJob(options = {}) {
   }
 
   if (!finished) {
+    await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
     return {
       ok: true,
       finished: false,
@@ -237,6 +254,7 @@ async function runFullUpdateJob(options = {}) {
       };
     }
 
+    await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
     return {
       ok: false,
       finished: true,

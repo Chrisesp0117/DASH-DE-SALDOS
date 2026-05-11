@@ -56,8 +56,6 @@ async function isJobActiveNow() {
 
 function isJsonRequest(req) {
   const method = String(req && req.method || 'GET').toUpperCase();
-  const forceParam = req && req.query ? req.query.force : getQueryValue(req && req.url, 'force');
-  const force = String(forceParam || '').toLowerCase() === 'true' || String(forceParam || '') === '1';
   if (method === 'POST') return true;
   const accept = String(req && req.headers && (req.headers.accept || req.headers.Accept) || '').toLowerCase();
   return accept.includes('application/json');
@@ -75,6 +73,8 @@ module.exports = async (req, res) => {
 
   const batchSizeParam = req && req.query ? req.query.batchSize : getQueryValue(req && req.url, 'batchSize');
   const batchSize = Math.max(1, Number(batchSizeParam || 5));
+  const forceParam = req && req.query ? req.query.force : getQueryValue(req && req.url, 'force');
+  const force = String(forceParam || '').toLowerCase() === 'true' || String(forceParam || '') === '1';
 
   const method = String(req && req.method || 'GET').toUpperCase();
 
@@ -226,7 +226,7 @@ module.exports = async (req, res) => {
 </html>
   `;
 
-  return sendHtml(res, html, ok ? 200 : 500);
+  return sendHtml(res, html, 200);
 };
 
 function sendJsonResponse(res, payload, statusCode = 200) {
