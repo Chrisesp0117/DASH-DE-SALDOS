@@ -73,7 +73,7 @@ module.exports = async (req, res) => {
   }
 
   const batchSizeParam = req && req.query ? req.query.batchSize : getQueryValue(req, 'batchSize');
-  const batchSize = Math.max(1, Number(batchSizeParam || 5));
+  const batchSize = Math.max(5, Number(batchSizeParam || 20));
   const forceParam = req && req.query ? req.query.force : getQueryValue(req, 'force');
   const force = String(forceParam || '').toLowerCase() === 'true' || String(forceParam || '') === '1';
 
@@ -94,7 +94,7 @@ module.exports = async (req, res) => {
 
       const result = await runFullUpdateJob({
         batchSize,
-        maxMs: 45000,
+        maxMs: 60000,
         rejectIfRunning: true,
         force,
         resetCursor,
@@ -446,8 +446,8 @@ module.exports = async (req, res) => {
           setManualState(false);
         } else {
           if (json && json.finished === false) {
-            showMessage('⏳ Atualização parcial concluída. Aguarde o próximo ciclo para continuar.', 'success');
-            setManualState(false);
+            showMessage('⏳ Lote concluído. Continuando automaticamente...', 'success');
+            manualRetryTimer = setTimeout(() => start({ internalRetry: true }), 1200);
             return;
           }
 
