@@ -247,11 +247,12 @@ async function acquireJobStateLock(sheets, spreadsheetId, options = {}) {
     ? Number(current.cursor)
     : 0;
   const owner = await getOwnerId();
+  const shouldResetCursor = resetCursor || String(current.lastAction || '') === 'finish';
   const state = {
     status: 'running',
     jobId,
     generation: nextGeneration,
-    cursor: resetCursor ? 0 : preservedCursor,
+    cursor: shouldResetCursor ? 0 : preservedCursor,
     leaseUntil: now + leaseMs,
     updatedAt: toIsoNow(),
     owner,
@@ -376,7 +377,7 @@ async function finishJobState(sheets, spreadsheetId, control, status = 'idle') {
     status,
     jobId: control.jobId,
     generation: control.generation,
-    cursor: 0,
+    cursor: Number.isFinite(Number(current.cursor)) && Number(current.cursor) >= 0 ? Number(current.cursor) : 0,
     leaseUntil: 0,
     updatedAt: toIsoNow(),
     owner: current.owner || '',
