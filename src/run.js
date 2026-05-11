@@ -885,6 +885,19 @@ async function run(options = {}) {
       await onProgress(index + 1, totalClientes, cliente);
     }
 
+    // Atualiza o cursor durante o processamento para a UI mostrar progresso real em tempo quase real.
+    // Fazemos isso a cada 2 clientes para reduzir escrita excessiva na planilha.
+    if (((batchIndex + 1) % 2 === 0) || batchIndex === batchClientes.length - 1) {
+      try {
+        await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
+          cursor: index + 1,
+          lastAction: 'progress'
+        });
+      } catch (e) {
+        // best-effort: não interrompe o processamento por falha de telemetria
+      }
+    }
+
     batchRows.push({ index, values });
   }
 
