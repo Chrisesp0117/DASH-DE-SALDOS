@@ -338,6 +338,10 @@ module.exports = async (req, res) => {
       <button id="refreshBtn">↻</button>
     </div>
 
+    <div style="margin-top:12px; display:flex; justify-content:center; gap:8px; align-items:center;">
+      <label style="font-size:13px; color:#666"><input id="forceCheck" type="checkbox" style="margin-right:8px"> Forçar</label>
+    </div>
+
     <div id="messageBox"></div>
   </div>
 
@@ -350,8 +354,9 @@ module.exports = async (req, res) => {
     const progressFill = document.getElementById('progressFill');
     const statusText = document.getElementById('statusText');
     const statusIcon = document.getElementById('statusIcon');
+    const forceCheck = document.getElementById('forceCheck');
     const statusUrl = '/api/update-status?secret=${encodeURIComponent(secret)}';
-    const startUrl = '/api/update-now?secret=${encodeURIComponent(secret)}${force ? '&force=true' : ''}';
+    const startUrlBase = '/api/update-now?secret=${encodeURIComponent(secret)}';
     let manualRunActive = false;
     let manualRetryTimer = null;
     let lastUserMessage = '';
@@ -429,11 +434,12 @@ module.exports = async (req, res) => {
       lastUserMessage = '';
 
       try {
-        const res = await fetch(startUrl, { method: 'POST' });
+        const sendUrl = startUrlBase + (forceCheck && forceCheck.checked ? '&force=true' : '');
+        const res = await fetch(sendUrl, { method: 'POST' });
         const json = await res.json().catch(() => ({}));
 
         if (res.status === 409) {
-          showMessage('⚠️ Já existe uma atualização em progresso.', 'error');
+          showMessage('⚠️ Já existe uma atualização em progresso. Marque "Forçar" para ignorar o lock e reiniciar.', 'error');
           setManualState(false);
         } else if (!res.ok) {
           showMessage('❌ ' + ((json && json.error) ? json.error : 'Erro ao iniciar'), 'error');
