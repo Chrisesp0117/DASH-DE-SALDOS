@@ -51,10 +51,11 @@ module.exports = async (req, res) => {
     if (!result || !result.ok) {
       if (result && result.running) {
         return sendJson(res, {
-          ok: false,
+          ok: true,
           running: true,
+          message: 'Job já em andamento; cron pode tentar novamente no próximo ciclo.',
           reason: result.reason || 'job_already_running'
-        }, 409);
+        }, 202);
       }
       return sendJson(res, {
         ok: false,

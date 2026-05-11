@@ -446,8 +446,8 @@ module.exports = async (req, res) => {
           setManualState(false);
         } else {
           if (json && json.finished === false) {
-            showMessage('⏳ Atualização parcial concluída. Continuando automaticamente...', 'success');
-            manualRetryTimer = setTimeout(() => start({ internalRetry: true }), 1000);
+            showMessage('⏳ Atualização parcial concluída. Aguarde o próximo ciclo para continuar.', 'success');
+            setManualState(false);
             return;
           }
 
