@@ -236,6 +236,29 @@ function formatLastUpdatePTBR(date = new Date()) {
   return `${datePart} às ${timePart}`;
 }
 
+async function updateWelcomeStatus(sheets, spreadsheetId, text) {
+  try {
+    const meta = await sheets.spreadsheets.get({
+      spreadsheetId,
+      fields: 'sheets(properties(title))'
+    });
+    const sheetsList = (meta.data.sheets || []).map(s => s.properties && s.properties.title).filter(Boolean);
+    const welcomeTitle = sheetsList.find(t => /^bem\s*vind/i.test(String(t || '')));
+    if (!welcomeTitle) {
+      return;
+    }
+    const safe = String(welcomeTitle || '').trim().replace(/'/g, "''");
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `'${safe}'!J5`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [[text]] }
+    });
+  } catch (error) {
+    console.warn('Falha ao atualizar status da aba de boas-vindas:', error && error.message ? error.message : error);
+  }
+}
+
 async function deleteSheetIfExists(sheets, spreadsheetId, title) {
   const meta = await sheets.spreadsheets.get({
     spreadsheetId,
@@ -734,6 +757,16 @@ async function run(options = {}) {
     }
   } else {
     console.log('Atualização de dashboards adiada para o cron dedicado.');
+  }
+
+  try {
+    await updateWelcomeStatus(
+      sheets,
+      process.env.SPREADSHEET_ID,
+      `Atualizado em ${formatLastUpdatePTBR()}`
+    );
+  } catch (e) {
+    console.warn('Falha ao atualizar status final na aba de boas-vindas:', e && e.message ? e.message : e);
   }
 
   console.log('DATABASE atualizada');
