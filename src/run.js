@@ -14,7 +14,7 @@ const DATABASE_HEADERS = [
   'Gestor', 'Supervisor', 'Status', 'Obs', 'DataISO', 'Identificador'
 ];
 
-const JOB_STATE_RANGE = 'JOB_STATE!A1:F1';
+const JOB_STATE_RANGE = 'JOB_STATE!A1:M1';
 const JOB_STATE_LEGACY_CURSOR_RANGE = 'JOB_STATE!A1';
 
 function createDefaultJobState() {
@@ -34,38 +34,70 @@ function toIsoNow() {
 
 function parseJobStateRow(values) {
   const row = Array.isArray(values) && values.length ? values[0] : [];
-  const first = row[0];
 
-  if (row.length === 1 && Number.isFinite(Number(first))) {
+  // Legacy: single numeric cursor stored in A1
+  if (row.length === 1 && Number.isFinite(Number(row[0]))) {
     return {
       ...createDefaultJobState(),
-      cursor: Math.max(0, Number(first))
+      cursor: Math.max(0, Number(row[0]))
     };
   }
 
-  const generation = Number(row[2]);
-  const cursor = Number(row[3]);
-  const leaseUntil = Number(row[4]);
+  // Old format (6 cols): [status, jobId, generation, cursor, leaseUntil, updatedAt]
+  if (row.length >= 6) {
+    const generation = Number(row[2]);
+    const cursor = Number(row[3]);
+    const leaseUntil = Number(row[4]);
 
-  return {
-    status: String(row[0] || 'idle').trim() || 'idle',
-    jobId: String(row[1] || '').trim(),
-    generation: Number.isFinite(generation) && generation >= 0 ? generation : 0,
-    cursor: Number.isFinite(cursor) && cursor >= 0 ? cursor : 0,
-    leaseUntil: Number.isFinite(leaseUntil) && leaseUntil >= 0 ? leaseUntil : 0,
-    updatedAt: String(row[5] || '').trim()
-  };
+    // If row has extended columns (>=13), parse them
+    if (row.length >= 13) {
+      return {
+        status: String(row[0] || 'idle').trim() || 'idle',
+        jobId: String(row[1] || '').trim(),
+        generation: Number.isFinite(generation) && generation >= 0 ? generation : 0,
+        cursor: Number.isFinite(cursor) && cursor >= 0 ? cursor : 0,
+        leaseUntil: Number.isFinite(leaseUntil) && leaseUntil >= 0 ? leaseUntil : 0,
+        updatedAt: String(row[5] || '').trim(),
+        owner: String(row[6] || '').trim(),
+        heartbeatAt: String(row[7] || '').trim(),
+        attempts: Number.isFinite(Number(row[8])) ? Number(row[8]) : 0,
+        lastError: String(row[9] || '').trim(),
+        lastAction: String(row[10] || '').trim(),
+        takeoverBy: String(row[11] || '').trim(),
+        auditPointer: String(row[12] || '').trim()
+      };
+    }
+
+    return {
+      status: String(row[0] || 'idle').trim() || 'idle',
+      jobId: String(row[1] || '').trim(),
+      generation: Number.isFinite(generation) && generation >= 0 ? generation : 0,
+      cursor: Number.isFinite(cursor) && cursor >= 0 ? cursor : 0,
+      leaseUntil: Number.isFinite(leaseUntil) && leaseUntil >= 0 ? leaseUntil : 0,
+      updatedAt: String(row[5] || '').trim()
+    };
+  }
+
+  return createDefaultJobState();
 }
 
 function serializeJobState(state) {
-  const normalized = state || createDefaultJobState();
+  const n = state || createDefaultJobState();
+  // produce 13 columns: A..M
   return [[
-    String(normalized.status || 'idle'),
-    String(normalized.jobId || ''),
-    String(Number.isFinite(Number(normalized.generation)) ? Number(normalized.generation) : 0),
-    String(Math.max(0, Number(normalized.cursor || 0))),
-    String(Math.max(0, Number(normalized.leaseUntil || 0))),
-    String(normalized.updatedAt || toIsoNow())
+    String(n.status || 'idle'),
+    String(n.jobId || ''),
+    String(Number.isFinite(Number(n.generation)) ? Number(n.generation) : 0),
+    String(Math.max(0, Number(n.cursor || 0))),
+    String(Math.max(0, Number(n.leaseUntil || 0))),
+    String(n.updatedAt || toIsoNow()),
+    String(n.owner || ''),
+    String(n.heartbeatAt || ''),
+    String(Number.isFinite(Number(n.attempts)) ? Number(n.attempts) : 0),
+    String(n.lastError || ''),
+    String(n.lastAction || ''),
+    String(n.takeoverBy || ''),
+    String(n.auditPointer || '')
   ]];
 }
 
@@ -110,26 +142,108 @@ async function writeJobState(sheets, spreadsheetId, state) {
   });
 }
 
+async function getOwnerId() {
+  try {
+    return `${process.env.HOSTNAME || 'local'}|pid:${process.pid}|uid:${randomUUID().slice(0,8)}`;
+  } catch (_) {
+    return `local|pid:${process.pid}`;
+  }
+}
+
+async function appendJobHistory(sheets, spreadsheetId, entry) {
+  try {
+    const values = [[
+      String(entry.timestamp || new Date().toISOString()),
+      String(entry.jobId || ''),
+      String(Number.isFinite(Number(entry.generation)) ? Number(entry.generation) : 0),
+      String(entry.action || ''),
+      String(entry.owner || ''),
+      String(Number.isFinite(Number(entry.cursor)) ? Number(entry.cursor) : 0),
+      String(Number.isFinite(Number(entry.leaseUntil)) ? Number(entry.leaseUntil) : 0),
+      String(entry.reason || ''),
+      String(entry.lastError || '')
+    ]];
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: 'JOB_HISTORY!A1',
+      valueInputOption: 'RAW',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values }
+    });
+  } catch (err) {
+    // If JOB_HISTORY doesn't exist, create it and retry
+    try {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [
+            { addSheet: { properties: { title: 'JOB_HISTORY' } } }
+          ]
+        }
+      });
+
+      // write header
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: 'JOB_HISTORY!A1',
+        valueInputOption: 'RAW',
+        requestBody: { values: [[ 'timestamp','jobId','generation','action','owner','cursor','leaseUntil','reason','lastError' ]] }
+      });
+
+      // retry append
+      await sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: 'JOB_HISTORY!A1',
+        valueInputOption: 'RAW',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: { values }
+      });
+    } catch (e) {
+      console.warn('Falha ao gravar JOB_HISTORY:', e && e.message ? e.message : e);
+    }
+  }
+}
+
 async function acquireJobStateLock(sheets, spreadsheetId, options = {}) {
   const current = await readJobState(sheets, spreadsheetId);
   const nextGeneration = Math.max(0, Number(current.generation || 0)) + 1;
   const jobId = String(options.jobId || randomUUID());
-  const leaseMs = Math.max(30000, Number(options.leaseMs || process.env.JOB_LEASE_MS || 10 * 60 * 1000));
+  const leaseMs = Math.max(60000, Number(options.leaseMs || process.env.JOB_LEASE_MS || 60 * 1000));
   const now = Date.now();
   const resetCursor = options.resetCursor === true;
   const preservedCursor = Number.isFinite(Number(current.cursor)) && Number(current.cursor) >= 0
     ? Number(current.cursor)
     : 0;
+  const owner = await getOwnerId();
   const state = {
     status: 'running',
     jobId,
     generation: nextGeneration,
     cursor: resetCursor ? 0 : preservedCursor,
     leaseUntil: now + leaseMs,
-    updatedAt: toIsoNow()
+    updatedAt: toIsoNow(),
+    owner,
+    heartbeatAt: toIsoNow(),
+    attempts: 0,
+    lastError: '',
+    lastAction: 'acquire',
+    takeoverBy: '',
+    auditPointer: 'JOB_HISTORY'
   };
 
   await writeJobState(sheets, spreadsheetId, state);
+  // append history
+  await appendJobHistory(sheets, spreadsheetId, {
+    timestamp: toIsoNow(),
+    jobId: state.jobId,
+    generation: state.generation,
+    action: 'acquire',
+    owner: state.owner,
+    cursor: state.cursor,
+    leaseUntil: state.leaseUntil,
+    reason: options.reason || ''
+  });
 
   return state;
 }
@@ -164,14 +278,37 @@ async function touchJobState(sheets, spreadsheetId, control, updates = {}) {
     err.code = 'JOB_INTERRUPTED';
     throw err;
   }
+  const leaseMs = Math.max(60000, Number(updates.leaseMs || process.env.JOB_LEASE_MS || 60 * 1000));
+  const nextLease = Date.now() + leaseMs;
+  const nextCursor = Number.isFinite(Number(updates.cursor)) ? Number(updates.cursor) : current.cursor;
+  const nextAttempts = Number.isFinite(Number(updates.attempts)) ? Number(updates.attempts) : (Number.isFinite(Number(current.attempts)) ? Number(current.attempts) : 0);
 
-  await writeJobState(sheets, spreadsheetId, {
+  const newState = {
     status: updates.status || current.status || 'running',
     jobId: control.jobId,
     generation: control.generation,
-    cursor: Number.isFinite(Number(updates.cursor)) ? Number(updates.cursor) : current.cursor,
-    leaseUntil: Date.now() + Math.max(30000, Number(updates.leaseMs || process.env.JOB_LEASE_MS || 10 * 60 * 1000)),
-    updatedAt: toIsoNow()
+    cursor: nextCursor,
+    leaseUntil: nextLease,
+    updatedAt: toIsoNow(),
+    owner: current.owner || (await getOwnerId()),
+    heartbeatAt: toIsoNow(),
+    attempts: nextAttempts,
+    lastError: updates.lastError || current.lastError || '',
+    lastAction: updates.lastAction || 'touch',
+    takeoverBy: current.takeoverBy || '',
+    auditPointer: current.auditPointer || 'JOB_HISTORY'
+  };
+
+  await writeJobState(sheets, spreadsheetId, newState);
+  await appendJobHistory(sheets, spreadsheetId, {
+    timestamp: newState.updatedAt,
+    jobId: newState.jobId,
+    generation: newState.generation,
+    action: newState.lastAction || 'touch',
+    owner: newState.owner,
+    cursor: newState.cursor,
+    leaseUntil: newState.leaseUntil,
+    reason: updates.reason || ''
   });
 }
 
@@ -184,14 +321,32 @@ async function finishJobState(sheets, spreadsheetId, control, status = 'idle') {
   if (!isSameJobState(current, control)) {
     return;
   }
-
-  await writeJobState(sheets, spreadsheetId, {
+  const newState = {
     status,
     jobId: control.jobId,
     generation: control.generation,
     cursor: 0,
     leaseUntil: 0,
-    updatedAt: toIsoNow()
+    updatedAt: toIsoNow(),
+    owner: current.owner || '',
+    heartbeatAt: '',
+    attempts: current.attempts || 0,
+    lastError: '',
+    lastAction: 'finish',
+    takeoverBy: current.takeoverBy || '',
+    auditPointer: current.auditPointer || 'JOB_HISTORY'
+  };
+
+  await writeJobState(sheets, spreadsheetId, newState);
+  await appendJobHistory(sheets, spreadsheetId, {
+    timestamp: newState.updatedAt,
+    jobId: newState.jobId,
+    generation: newState.generation,
+    action: 'finish',
+    owner: newState.owner,
+    cursor: newState.cursor,
+    leaseUntil: newState.leaseUntil,
+    reason: ''
   });
 }
 
@@ -204,14 +359,32 @@ async function releaseJobState(sheets, spreadsheetId, control, status = 'idle') 
   if (!isSameJobState(current, control)) {
     return;
   }
-
-  await writeJobState(sheets, spreadsheetId, {
+  const newState = {
     status,
     jobId: control.jobId,
     generation: control.generation,
     cursor: Number.isFinite(Number(current.cursor)) && Number(current.cursor) >= 0 ? Number(current.cursor) : 0,
     leaseUntil: 0,
-    updatedAt: toIsoNow()
+    updatedAt: toIsoNow(),
+    owner: current.owner || '',
+    heartbeatAt: '',
+    attempts: current.attempts || 0,
+    lastError: '',
+    lastAction: 'release',
+    takeoverBy: current.takeoverBy || '',
+    auditPointer: current.auditPointer || 'JOB_HISTORY'
+  };
+
+  await writeJobState(sheets, spreadsheetId, newState);
+  await appendJobHistory(sheets, spreadsheetId, {
+    timestamp: newState.updatedAt,
+    jobId: newState.jobId,
+    generation: newState.generation,
+    action: 'release',
+    owner: newState.owner,
+    cursor: newState.cursor,
+    leaseUntil: newState.leaseUntil,
+    reason: ''
   });
 }
 
@@ -729,6 +902,9 @@ async function run(options = {}) {
   }
 
   try {
+    try {
+      await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { lastAction: 'pre_generate_supervisor' });
+    } catch (e) { /* best-effort */ }
     await generateBlocosPorGestor(sheets, process.env.SPREADSHEET_ID);
     console.log('SUPERVISOR atualizado');
   } catch (e) {
@@ -736,6 +912,9 @@ async function run(options = {}) {
   }
 
   try {
+    try {
+      await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { lastAction: 'pre_generate_agg' });
+    } catch (e) { /* best-effort */ }
     await generateSupervisorAgg(sheets, process.env.SPREADSHEET_ID);
     console.log('AGG_SUPERVISOR atualizado');
   } catch (e) {
@@ -784,6 +963,9 @@ module.exports = {
   finishJobState,
   releaseJobState
 };
+// exported helpers
+module.exports.appendJobHistory = appendJobHistory;
+module.exports.getOwnerId = getOwnerId;
 
 if (require.main === module) {
   run()

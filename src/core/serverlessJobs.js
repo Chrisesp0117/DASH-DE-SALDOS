@@ -5,7 +5,8 @@ const {
   assertJobStateActive,
   finishJobState,
   releaseJobState,
-  readJobState
+  readJobState,
+  touchJobState
 } = require('../run');
 const { generateBlocosPorGestor } = require('./visualBlocks');
 const { ensureDashboardsForAllGestores, atomicRefreshAllDashboards } = require('./gestorDashboards');
@@ -238,6 +239,10 @@ async function runFullUpdateJob(options = {}) {
   const supervisorResult = includeSupervisor
     ? await generateBlocosPorGestor(sheets, spreadsheetId)
     : null;
+
+  try {
+    await touchJobState(sheets, spreadsheetId, jobControl, { lastAction: 'pre_dashboards' });
+  } catch (e) { /* best-effort */ }
 
   const dashboardResult = await runDashboardJob({
     includeSupervisor: false,
