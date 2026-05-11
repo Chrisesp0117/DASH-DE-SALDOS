@@ -352,9 +352,29 @@ module.exports = async (req, res) => {
     const statusIcon = document.getElementById('statusIcon');
     const statusUrl = '/api/update-status?secret=${encodeURIComponent(secret)}';
     const startUrl = '/api/update-now?secret=${encodeURIComponent(secret)}${force ? '&force=true' : ''}';
+    let manualRunActive = false;
+    let manualRetryTimer = null;
+    let lastUserMessage = '';
 
     function showMessage(text, type) {
+      lastUserMessage = text;
       messageBox.innerHTML = '<div class="' + type + '">' + text.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+    }
+
+    function setManualState(running) {
+      manualRunActive = running;
+      startBtn.disabled = running;
+      refreshBtn.disabled = running;
+      if (manualRetryTimer) {
+        clearTimeout(manualRetryTimer);
+        manualRetryTimer = null;
+      }
+    }
+
+    function renderRunningState(label, icon, text) {
+      statusEl.textContent = label;
+      statusIcon.textContent = icon;
+      statusText.textContent = text;
     }
 
     async function refresh() {
@@ -370,31 +390,41 @@ module.exports = async (req, res) => {
         progressFill.style.width = pct + '%';
 
         if (running) {
-          statusEl.textContent = '⏳ Em Progresso';
-          statusIcon.textContent = '⌛';
-          statusText.textContent = 'A atualização está em andamento. Aguarde...';
+          renderRunningState('⏳ Em Progresso', '⌛', 'A atualização está em andamento. Aguarde...');
           startBtn.disabled = true;
+          refreshBtn.disabled = true;
         } else {
-          statusEl.textContent = '✅ Pronto';
-          statusIcon.textContent = '✨';
-          statusText.textContent = state.updatedAt ? 'Última: ' + state.updatedAt : 'Nenhuma execução recente';
-          startBtn.disabled = false;
+          if (manualRunActive) {
+            renderRunningState('⏳ Continuando', '⌛', 'Processando o próximo lote...');
+            startBtn.disabled = true;
+            refreshBtn.disabled = true;
+          } else {
+            statusEl.textContent = '✅ Pronto';
+            statusIcon.textContent = '✨';
+            statusText.textContent = state.updatedAt ? 'Última: ' + state.updatedAt : 'Nenhuma execução recente';
+            startBtn.disabled = false;
+            refreshBtn.disabled = false;
+          }
         }
 
         counterEl.textContent = cursor + ' / ' + total;
-        messageBox.innerHTML = '';
       } catch (e) {
         statusEl.textContent = '❌ Erro';
         statusText.textContent = 'Falha ao conectar. Tente novamente.';
         startBtn.disabled = false;
+        refreshBtn.disabled = false;
       }
     }
 
     async function start() {
-      startBtn.disabled = true;
-      statusIcon.textContent = '⏳';
-      statusEl.textContent = '⏳ Iniciando...';
+      if (manualRunActive) {
+        return;
+      }
+
+      setManualState(true);
+      renderRunningState('⏳ Iniciando...', '⏳', 'Iniciando atualização manual...');
       messageBox.innerHTML = '';
+      lastUserMessage = '';
 
       try {
         const res = await fetch(startUrl, { method: 'POST' });
@@ -402,13 +432,23 @@ module.exports = async (req, res) => {
 
         if (res.status === 409) {
           showMessage('⚠️ Já existe uma atualização em progresso.', 'error');
+          setManualState(false);
         } else if (!res.ok) {
           showMessage('❌ ' + ((json && json.error) ? json.error : 'Erro ao iniciar'), 'error');
+          setManualState(false);
         } else {
-          showMessage('✅ Atualização iniciada com sucesso!', 'success');
+          if (json && json.finished === false) {
+            showMessage('⏳ Atualização parcial concluída. Continuando automaticamente...', 'success');
+            manualRetryTimer = setTimeout(start, 1000);
+            return;
+          }
+
+          showMessage('✅ Atualização finalizada com sucesso!', 'success');
+          setManualState(false);
         }
       } catch (e) {
         showMessage('❌ Erro ao conectar', 'error');
+        setManualState(false);
       } finally {
         setTimeout(refresh, 600);
         setTimeout(refresh, 2000);
