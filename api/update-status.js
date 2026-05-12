@@ -68,6 +68,7 @@ module.exports = async (req, res) => {
       running: lockMeta.running,
       lockState: lockMeta.lockState,
       stage: String(state.stage || 'idle'),
+      cursor: Number.isFinite(Number(state.cursor)) ? Number(state.cursor) : 0,
       leaseRemainingMs: lockMeta.leaseRemainingMs,
       heartbeatAgeMs: lockMeta.heartbeatAgeMs,
       staleByHeartbeat: lockMeta.staleByHeartbeat,

@@ -89,10 +89,15 @@ function openUpdateDialog() {
         <div class="content">
           <div class="card">
             <div class="row">
-              <div class="status">Status: <strong id="status">carregando...</strong></div>
-              <div class="counter" id="counter">0/0</div>
+              <div style="display:flex;flex-direction:column;gap:6px;">
+                <div class="status">Status: <strong id="status">carregando...</strong></div>
+                <div class="muted">Stage: <span id="stage">—</span></div>
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+                <div class="counter" id="counter">0/0</div>
+                <div class="muted" id="lastUpdate">Última atualização: —</div>
+              </div>
             </div>
-            <div class="muted" id="lastUpdate">Última atualização: —</div>
           </div>
 
           <div class="card actions">
@@ -123,10 +128,12 @@ function openUpdateDialog() {
             const json = await res.json();
             const state = json && json.state ? json.state : {};
             const total = Number(json && json.totalClients ? json.totalClients : 0);
-            const cursor = Number(state.cursor || 0);
-            const running = String(state.status || '') === 'running' && Number(state.leaseUntil || 0) > Date.now();
+            const cursor = Number(json && Number.isFinite(Number(json.cursor)) ? Number(json.cursor) : (state.cursor || 0));
+            const stage = String(json && json.stage ? json.stage : (state.stage || 'idle'));
+            const running = stage === 'database' || (String(state.status || '') === 'running' && Number(state.leaseUntil || 0) > Date.now());
 
             statusEl.textContent = running ? 'Atualização automática/manual em progresso...' : 'idle';
+            stageEl.textContent = stage;
             counterEl.textContent = cursor + '/' + total;
             lastUpdateEl.textContent = 'Última atualização: ' + (state.updatedAt || '—');
             openBtn.disabled = running;
