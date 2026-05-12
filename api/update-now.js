@@ -138,9 +138,6 @@ module.exports = async (req, res) => {
   return sendHtml(res, html, 200);
 };
 
-  return sendHtml(res, html, 200);
-};
-
 function sendJsonResponse(res, payload, statusCode = 200) {
   if (res && typeof res.status === 'function' && typeof res.json === 'function') {
     return res.status(statusCode).json(payload);
