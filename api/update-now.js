@@ -702,8 +702,10 @@ module.exports = async (req, res) => {
         const res = await fetch(statusUrl, { cache: 'no-store' });
         const json = await res.json().catch(() => ({}));
         const state = json && json.state ? json.state : {};
-        const total = Number(json && json.totalClients || 0);
+        const total = Number(json && json.totalClients !== undefined ? json.totalClients : state.totalClients || 0);
         const cursor = Number(json && json.displayCursor !== undefined ? json.displayCursor : state.cursor || 0);
+
+        console.log('[UI] refresh: cursor=' + cursor + ', total=' + total + ', json.totalClients=' + json.totalClients + ', state.totalClients=' + state.totalClients + ', running=' + (desc && desc.indicator === 'running'));
 
         lastKnownState = json;
 
@@ -728,17 +730,24 @@ module.exports = async (req, res) => {
 
         // Se manualRunActive mas job não está mais rodando
         if (manualRunActive && desc.indicator !== 'running') {
+          console.log('[UI] Job terminado. cursor=' + cursor + ', total=' + total + ', manualRunActive=' + manualRunActive);
           // Job terminou!
-          if (cursor >= total) {
+          if (cursor >= total && total > 0) {
             // Todos processados
+            console.log('[UI] TUDO COMPLETO');
             addToHistory('success', 'Completo', 'Todos os clientes atualizados');
             showMessage('✅ Todos os lotes foram concluídos!', 'success');
             manualRunActive = false;
-          } else {
+          } else if (total > 0) {
             // Ainda há clientes, inicia próximo lote
-            addToHistory('success', 'Retomando', 'Iniciando próximo lote...');
-            manualRunActive = false;
+            console.log('[UI] Iniciando próximo lote. cursor=' + cursor + ', total=' + total);
+            addToHistory('success', 'Retomando', 'Processando próximo lote...');
+            // NÃO seta manualRunActive = false aqui, deixa rodar!
             setTimeout(() => start({ internalRetry: true }), 500);
+            return; // Não continua processando este refresh
+          } else {
+            console.log('[UI] total=0, aguardando carregamento');
+            manualRunActive = false;
           }
         }
 
@@ -755,6 +764,7 @@ module.exports = async (req, res) => {
         }
 
       } catch (e) {
+        console.error('[UI] refresh erro:', e && e.message);
         statusLabel.textContent = '❌ Erro';
         statusIcon.textContent = '🔌';
         statusDetail.textContent = 'Falha ao conectar com servidor.';
@@ -776,10 +786,15 @@ module.exports = async (req, res) => {
       startBtn.disabled = true;
       messageBox.classList.remove('show');
 
+      console.log('[UI] start() called. internalRetry=' + internalRetry);
+
       try {
         const url = startUrlBase + (forceCheck && forceCheck.checked ? '&force=true' : '');
+        console.log('[UI] POST: ' + url);
         const res = await fetch(url, { method: 'POST' });
         const json = await res.json().catch(() => ({}));
+
+        console.log('[UI] POST response. status=' + res.status + ', ok=' + json.ok + ', started=' + json.started);
 
         if (res.status === 409) {
           // Job já está em andamento
@@ -797,9 +812,11 @@ module.exports = async (req, res) => {
           // Job foi iniciado em background! Agora polling do status
           addToHistory('success', 'Iniciado', 'Processando em background...');
           showMessage('⏳ Atualização iniciada! Acompanhando progresso...', 'info');
+          console.log('[UI] Job started in background (202), manualRunActive will continue polling');
           // Manter manualRunActive=true para continuar com polling
           // A cada 2 segundos, refresh() vai atualizar o progresso
-          // Quando terminar (cursor >= total), vai retomar automaticamente ou finalizareturn;
+          // Quando terminar (cursor >= total), vai retomar automaticamente ou finalizar
+          return;
 
         } else if (!res.ok) {
           addToHistory('error', 'Erro', json && json.error ? json.error : 'Desconhecido');
@@ -821,6 +838,7 @@ module.exports = async (req, res) => {
         }
 
       } catch (e) {
+        console.error('[UI] start() error:', e && e.message);
         addToHistory('error', 'Conexão', 'Erro ao conectar');
         showMessage('❌ Erro de conexão: ' + (e && e.message ? e.message : 'desconhecido'), 'error');
         manualRunActive = false;
