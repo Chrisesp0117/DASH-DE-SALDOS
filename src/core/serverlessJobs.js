@@ -1,6 +1,5 @@
 const { getSheets } = require('../services/sheets');
 const {
-  run,
   acquireJobStateLock,
   assertJobStateActive,
   finishJobState,
@@ -9,8 +8,10 @@ const {
   touchJobState,
   startHeartbeatTimer,
   DEFAULT_HEARTBEAT_INTERVAL_MS,
-  HEARTBEAT_STALE_THRESHOLD_MS
-} = require('../run');
+  HEARTBEAT_STALE_THRESHOLD_MS,
+  getJobLockMeta
+} = require('./jobState');
+const { run } = require('../run');
 const { generateBlocosPorGestor } = require('./visualBlocks');
 const { ensureDashboardsForAllGestores, atomicRefreshAllDashboards } = require('./gestorDashboards');
 const { generateReport } = require('./reportGenerator');
@@ -49,25 +50,6 @@ function sendJson(res, payload, statusCode = 200) {
   }
 
   return { statusCode, body: JSON.stringify(payload) };
-}
-
-function getJobLockMeta(state) {
-  const now = Date.now();
-  const leaseUntil = Number(state && state.leaseUntil || 0);
-  const heartbeatAt = state && state.heartbeatAt ? Date.parse(state.heartbeatAt) : 0;
-  const heartbeatAgeMs = heartbeatAt > 0 ? Math.max(0, now - heartbeatAt) : null;
-  const staleByHeartbeat = heartbeatAgeMs !== null && heartbeatAgeMs > HEARTBEAT_STALE_THRESHOLD_MS;
-  const status = String(state && state.status || '').trim();
-  const leaseActive = leaseUntil > now;
-  const running = status === 'running' && leaseActive && !staleByHeartbeat;
-
-  return {
-    running,
-    leaseActive,
-    staleByHeartbeat,
-    heartbeatAgeMs,
-    leaseRemainingMs: Math.max(0, leaseUntil - now)
-  };
 }
 
 function getCronSecretFromRequest(req) {
