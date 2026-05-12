@@ -501,7 +501,9 @@ module.exports = async (req, res) => {
         const json = await res.json().catch(() => ({}));
         const state = json && json.state ? json.state : {};
         const total = Number(json && json.totalClients ? json.totalClients : 0);
-        const cursor = Number(state.cursor || 0);
+        const cursor = Number.isFinite(Number(json && json.displayCursor))
+          ? Number(json.displayCursor)
+          : Number(state.cursor || 0);
         const lockView = describeLockState(json);
         const running = lockView.kind === 'active' || lockView.kind === 'stale';
 

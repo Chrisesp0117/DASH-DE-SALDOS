@@ -128,7 +128,7 @@ function openUpdateDialog() {
             const json = await res.json();
             const state = json && json.state ? json.state : {};
             const total = Number(json && json.totalClients ? json.totalClients : 0);
-            const cursor = Number(json && Number.isFinite(Number(json.cursor)) ? Number(json.cursor) : (state.cursor || 0));
+            const cursor = Number(json && Number.isFinite(Number(json.displayCursor)) ? Number(json.displayCursor) : (state.cursor || 0));
             const stage = String(json && json.stage ? json.stage : (state.stage || 'idle'));
             const running = stage === 'database' || (String(state.status || '') === 'running' && Number(state.leaseUntil || 0) > Date.now());
 

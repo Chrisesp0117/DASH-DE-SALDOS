@@ -14,7 +14,7 @@ const DATABASE_HEADERS = [
   'Gestor', 'Supervisor', 'Status', 'Obs', 'DataISO', 'Identificador'
 ];
 
-const JOB_STATE_RANGE = 'JOB_STATE!A1:N1';
+const JOB_STATE_RANGE = 'JOB_STATE!A1:O1';
 const JOB_STATE_LEGACY_CURSOR_RANGE = 'JOB_STATE!A1';
 
 // Heartbeat configuration (configurable via env)
@@ -28,6 +28,7 @@ function createDefaultJobState() {
     jobId: '',
     generation: 0,
     cursor: 0,
+    progressCursor: 0,
     leaseUntil: 0,
     updatedAt: '',
     stage: 'idle'
@@ -56,7 +57,7 @@ function parseJobStateRow(values) {
     const leaseUntil = Number(row[4]);
 
     // If row has extended columns (>=13), parse them
-    if (row.length >= 13) {
+    if (row.length >= 14) {
       return {
         status: String(row[0] || 'idle').trim() || 'idle',
         jobId: String(row[1] || '').trim(),
@@ -71,7 +72,8 @@ function parseJobStateRow(values) {
         lastAction: String(row[10] || '').trim(),
         takeoverBy: String(row[11] || '').trim(),
         auditPointer: String(row[12] || '').trim(),
-        stage: String(row[13] || row[10] || 'idle').trim() || 'idle'
+        stage: String(row[13] || row[10] || 'idle').trim() || 'idle',
+        progressCursor: Number.isFinite(Number(row[14])) && Number(row[14]) >= 0 ? Number(row[14]) : 0
       };
     }
 
@@ -82,6 +84,7 @@ function parseJobStateRow(values) {
       cursor: Number.isFinite(cursor) && cursor >= 0 ? cursor : 0,
       leaseUntil: Number.isFinite(leaseUntil) && leaseUntil >= 0 ? leaseUntil : 0,
       updatedAt: String(row[5] || '').trim(),
+      progressCursor: 0,
       stage: 'idle'
     };
   }
@@ -91,7 +94,7 @@ function parseJobStateRow(values) {
 
 function serializeJobState(state) {
   const n = state || createDefaultJobState();
-  // produce 14 columns: A..N
+  // produce 15 columns: A..O
   return [[
     String(n.status || 'idle'),
     String(n.jobId || ''),
@@ -106,7 +109,8 @@ function serializeJobState(state) {
     String(n.lastAction || ''),
     String(n.takeoverBy || ''),
     String(n.auditPointer || ''),
-    String(n.stage || 'idle')
+    String(n.stage || 'idle'),
+    String(Number.isFinite(Number(n.progressCursor)) ? Math.max(0, Number(n.progressCursor)) : 0)
   ]];
 }
 
@@ -344,6 +348,9 @@ async function touchJobState(sheets, spreadsheetId, control, updates = {}) {
   const isHeartbeat = String(updates.lastAction || '').includes('heartbeat');
   const nextLease = Date.now() + leaseMs;
   const nextCursor = Number.isFinite(Number(updates.cursor)) ? Number(updates.cursor) : current.cursor;
+  const nextProgressCursor = Number.isFinite(Number(updates.progressCursor))
+    ? Number(updates.progressCursor)
+    : (Number.isFinite(Number(current.progressCursor)) ? Number(current.progressCursor) : nextCursor);
   const nextAttempts = Number.isFinite(Number(updates.attempts)) ? Number(updates.attempts) : (Number.isFinite(Number(current.attempts)) ? Number(current.attempts) : 0);
 
   const newState = {
@@ -360,7 +367,8 @@ async function touchJobState(sheets, spreadsheetId, control, updates = {}) {
     lastAction: updates.lastAction || 'touch',
     takeoverBy: current.takeoverBy || '',
     auditPointer: current.auditPointer || 'JOB_HISTORY',
-    stage: updates.stage || current.stage || 'running'
+    stage: updates.stage || current.stage || 'running',
+    progressCursor: nextProgressCursor
   };
 
   await writeJobState(sheets, spreadsheetId, newState);
@@ -390,6 +398,7 @@ async function finishJobState(sheets, spreadsheetId, control, status = 'idle') {
     jobId: control.jobId,
     generation: control.generation,
     cursor: Number.isFinite(Number(current.cursor)) && Number(current.cursor) >= 0 ? Number(current.cursor) : 0,
+    progressCursor: Number.isFinite(Number(current.progressCursor)) && Number(current.progressCursor) >= 0 ? Number(current.progressCursor) : (Number.isFinite(Number(current.cursor)) ? Number(current.cursor) : 0),
     leaseUntil: 0,
     updatedAt: toIsoNow(),
     owner: current.owner || '',
@@ -429,6 +438,7 @@ async function releaseJobState(sheets, spreadsheetId, control, status = 'idle') 
     jobId: control.jobId,
     generation: control.generation,
     cursor: Number.isFinite(Number(current.cursor)) && Number(current.cursor) >= 0 ? Number(current.cursor) : 0,
+    progressCursor: Number.isFinite(Number(current.progressCursor)) && Number(current.progressCursor) >= 0 ? Number(current.progressCursor) : (Number.isFinite(Number(current.cursor)) ? Number(current.cursor) : 0),
     leaseUntil: 0,
     updatedAt: toIsoNow(),
     owner: current.owner || '',
@@ -926,6 +936,7 @@ async function run(options = {}) {
       try {
         await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
           stage: 'database',
+          progressCursor: index + 1,
           lastAction: 'progress'
         });
       } catch (e) {
