@@ -29,6 +29,7 @@ function createDefaultJobState() {
     generation: 0,
     cursor: 0,
     progressCursor: 0,
+    totalClients: 0,
     leaseUntil: 0,
     updatedAt: '',
     stage: 'idle'
@@ -57,7 +58,7 @@ function parseJobStateRow(values) {
     const leaseUntil = Number(row[4]);
 
     // If row has extended columns (>=13), parse them
-    if (row.length >= 14) {
+    if (row.length >= 15) {
       return {
         status: String(row[0] || 'idle').trim() || 'idle',
         jobId: String(row[1] || '').trim(),
@@ -73,7 +74,8 @@ function parseJobStateRow(values) {
         takeoverBy: String(row[11] || '').trim(),
         auditPointer: String(row[12] || '').trim(),
         stage: String(row[13] || row[10] || 'idle').trim() || 'idle',
-        progressCursor: Number.isFinite(Number(row[14])) && Number(row[14]) >= 0 ? Number(row[14]) : 0
+        progressCursor: Number.isFinite(Number(row[14])) && Number(row[14]) >= 0 ? Number(row[14]) : 0,
+        totalClients: Number.isFinite(Number(row[15])) && Number(row[15]) >= 0 ? Number(row[15]) : 0
       };
     }
 
@@ -85,6 +87,7 @@ function parseJobStateRow(values) {
       leaseUntil: Number.isFinite(leaseUntil) && leaseUntil >= 0 ? leaseUntil : 0,
       updatedAt: String(row[5] || '').trim(),
       progressCursor: 0,
+      totalClients: 0,
       stage: 'idle'
     };
   }
@@ -94,7 +97,7 @@ function parseJobStateRow(values) {
 
 function serializeJobState(state) {
   const n = state || createDefaultJobState();
-  // produce 15 columns: A..O
+  // produce 16 columns: A..P
   return [[
     String(n.status || 'idle'),
     String(n.jobId || ''),
@@ -110,7 +113,8 @@ function serializeJobState(state) {
     String(n.takeoverBy || ''),
     String(n.auditPointer || ''),
     String(n.stage || 'idle'),
-    String(Number.isFinite(Number(n.progressCursor)) ? Math.max(0, Number(n.progressCursor)) : 0)
+    String(Number.isFinite(Number(n.progressCursor)) ? Math.max(0, Number(n.progressCursor)) : 0),
+    String(Number.isFinite(Number(n.totalClients)) ? Math.max(0, Number(n.totalClients)) : 0)
   ]];
 }
 
@@ -351,6 +355,9 @@ async function touchJobState(sheets, spreadsheetId, control, updates = {}) {
   const nextProgressCursor = Number.isFinite(Number(updates.progressCursor))
     ? Number(updates.progressCursor)
     : (Number.isFinite(Number(current.progressCursor)) ? Number(current.progressCursor) : nextCursor);
+  const nextTotalClients = Number.isFinite(Number(updates.totalClients))
+    ? Number(updates.totalClients)
+    : (Number.isFinite(Number(current.totalClients)) ? Number(current.totalClients) : 0);
   const nextAttempts = Number.isFinite(Number(updates.attempts)) ? Number(updates.attempts) : (Number.isFinite(Number(current.attempts)) ? Number(current.attempts) : 0);
 
   const newState = {
@@ -368,7 +375,8 @@ async function touchJobState(sheets, spreadsheetId, control, updates = {}) {
     takeoverBy: current.takeoverBy || '',
     auditPointer: current.auditPointer || 'JOB_HISTORY',
     stage: updates.stage || current.stage || 'running',
-    progressCursor: nextProgressCursor
+    progressCursor: nextProgressCursor,
+    totalClients: nextTotalClients
   };
 
   await writeJobState(sheets, spreadsheetId, newState);
@@ -399,6 +407,7 @@ async function finishJobState(sheets, spreadsheetId, control, status = 'idle') {
     generation: control.generation,
     cursor: Number.isFinite(Number(current.cursor)) && Number(current.cursor) >= 0 ? Number(current.cursor) : 0,
     progressCursor: Number.isFinite(Number(current.progressCursor)) && Number(current.progressCursor) >= 0 ? Number(current.progressCursor) : (Number.isFinite(Number(current.cursor)) ? Number(current.cursor) : 0),
+    totalClients: Number.isFinite(Number(current.totalClients)) && Number(current.totalClients) >= 0 ? Number(current.totalClients) : 0,
     leaseUntil: 0,
     updatedAt: toIsoNow(),
     owner: current.owner || '',
@@ -439,6 +448,7 @@ async function releaseJobState(sheets, spreadsheetId, control, status = 'idle') 
     generation: control.generation,
     cursor: Number.isFinite(Number(current.cursor)) && Number(current.cursor) >= 0 ? Number(current.cursor) : 0,
     progressCursor: Number.isFinite(Number(current.progressCursor)) && Number(current.progressCursor) >= 0 ? Number(current.progressCursor) : (Number.isFinite(Number(current.cursor)) ? Number(current.cursor) : 0),
+    totalClients: Number.isFinite(Number(current.totalClients)) && Number(current.totalClients) >= 0 ? Number(current.totalClients) : 0,
     leaseUntil: 0,
     updatedAt: toIsoNow(),
     owner: current.owner || '',
@@ -877,6 +887,16 @@ async function run(options = {}) {
   let cursor = Number.isFinite(Number(options.cursor)) ? Math.max(0, Number(options.cursor)) : await readJobCursor(sheets, process.env.SPREADSHEET_ID);
   if (!Number.isFinite(cursor) || cursor < 0 || cursor >= totalClientes) {
     cursor = 0;
+  }
+
+  try {
+    await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
+      totalClients: totalClientes,
+      stage: cursor === 0 ? 'database' : (jobControl && jobControl.stage) || 'database',
+      lastAction: 'set_total_clients'
+    });
+  } catch (e) {
+    // best-effort telemetry only
   }
 
   const batchClientes = clientes.slice(cursor, cursor + batchSize);

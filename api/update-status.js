@@ -56,12 +56,9 @@ module.exports = async (req, res) => {
     const state = await readJobState(sheets, spreadsheetId);
     const lockMeta = classifyLockState(state);
 
-    const configs = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: 'CONFIGS!A2:A'
-    });
-
-    const totalClients = (configs.data.values || []).length;
+    const totalClients = Number.isFinite(Number(state.totalClients))
+      ? Number(state.totalClients)
+      : 0;
 
     return sendJson(res, {
       ok: true,
