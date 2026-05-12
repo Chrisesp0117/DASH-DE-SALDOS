@@ -417,12 +417,14 @@ async function run(options = {}) {
 
   const clientesRes = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SPREADSHEET_ID,
-    range: 'CONFIGS!A1:Z'
+    range: 'CONFIGS!A:Z'
   });
 
   const clientesValues = clientesRes.data.values || [];
   const headerRow = clientesValues[0] || [];
   const clientes = clientesValues.slice(1);
+
+  console.log('[DEBUG] clientesValues.length=' + clientesValues.length + ', clientes.length=' + clientes.length + ', batchSize=' + batchSize);
 
   const headerMap = new Map(
     headerRow.map((header, index) => [String(header || '').trim().toLowerCase(), index])
