@@ -8,12 +8,12 @@ const {
   readJobState,
   touchJobState,
   startHeartbeatTimer,
-  DEFAULT_HEARTBEAT_INTERVAL_MS
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
+  HEARTBEAT_STALE_THRESHOLD_MS
 } = require('../run');
 const { generateBlocosPorGestor } = require('./visualBlocks');
 const { ensureDashboardsForAllGestores, atomicRefreshAllDashboards } = require('./gestorDashboards');
 const { generateReport } = require('./reportGenerator');
-
 
 function readHeader(req, name) {
   const headers = req && req.headers;
@@ -21,8 +21,7 @@ function readHeader(req, name) {
   if (!headers) {
     return '';
   }
-  DEFAULT_HEARTBEAT_INTERVAL_MS,
-  HEARTBEAT_STALE_THRESHOLD_MS
+
   if (typeof headers.get === 'function') {
     return headers.get(name) || '';
   }
@@ -48,65 +47,53 @@ function sendJson(res, payload, statusCode = 200) {
       headers: { 'content-type': 'application/json; charset=utf-8' }
     });
   }
-    function getJobLockMeta(state) {
-      const now = Date.now();
-      const leaseUntil = Number(state && state.leaseUntil || 0);
-      const heartbeatAt = state && state.heartbeatAt ? Date.parse(state.heartbeatAt) : 0;
-      const heartbeatAgeMs = heartbeatAt > 0 ? Math.max(0, now - heartbeatAt) : null;
-      const staleByHeartbeat = heartbeatAgeMs !== null && heartbeatAgeMs > HEARTBEAT_STALE_THRESHOLD_MS;
-      const status = String(state && state.status || '').trim();
-      const leaseActive = leaseUntil > now;
-      const running = status === 'running' && leaseActive && !staleByHeartbeat;
-
-      return {
-        running,
-        leaseActive,
-        staleByHeartbeat,
-        heartbeatAgeMs,
-        leaseRemainingMs: Math.max(0, leaseUntil - now)
-      };
-    }
 
   return { statusCode, body: JSON.stringify(payload) };
 }
 
-      const lockMeta = getJobLockMeta(state);
-      return { running: lockMeta.running, state, lockMeta };
+function getJobLockMeta(state) {
+  const now = Date.now();
+  const leaseUntil = Number(state && state.leaseUntil || 0);
+  const heartbeatAt = state && state.heartbeatAt ? Date.parse(state.heartbeatAt) : 0;
+  const heartbeatAgeMs = heartbeatAt > 0 ? Math.max(0, now - heartbeatAt) : null;
+  const staleByHeartbeat = heartbeatAgeMs !== null && heartbeatAgeMs > HEARTBEAT_STALE_THRESHOLD_MS;
+  const status = String(state && state.status || '').trim();
+  const leaseActive = leaseUntil > now;
+  const running = status === 'running' && leaseActive && !staleByHeartbeat;
+
+  return {
+    running,
+    leaseActive,
+    staleByHeartbeat,
+    heartbeatAgeMs,
+    leaseRemainingMs: Math.max(0, leaseUntil - now)
+  };
+}
+
+function getCronSecretFromRequest(req) {
+  const urlSecret = (() => {
     try {
       const rawUrl = String(req && req.url || '/');
-      console.log('[cron-auth-debug] rawUrl:', rawUrl.substring(0, 100));
-      // Handle both full URLs and paths
       let url;
       if (rawUrl.startsWith('http')) {
         url = new URL(rawUrl);
       } else {
-        // For paths, use the query string parsing directly
         const qIdx = rawUrl.indexOf('?');
         if (qIdx === -1) {
-          console.log('[cron-auth-debug] no query string found');
           return '';
         }
         const queryString = rawUrl.substring(qIdx + 1);
-        console.log('[cron-auth-debug] queryString:', queryString.substring(0, 50));
         const params = new URLSearchParams(queryString);
         return params.get('secret') || params.get('token') || '';
       }
       return url.searchParams.get('secret') || url.searchParams.get('token') || '';
-    } catch (error) {
-      console.error('[cron-auth-debug] error parsing URL:', error.message);
+    } catch (_) {
       return '';
     }
   })();
 
   const headerSecret = readHeader(req, 'x-cron-secret');
-  const querySecret = req.query?.secret || req.query?.token;
-  const tokenSecret = '';
-
-  console.log('[cron-auth-debug] sources:', {
-    urlSecret: !!urlSecret,
-    headerSecret: !!headerSecret,
-    querySecret: !!querySecret
-  });
+  const querySecret = req && req.query ? (req.query.secret || req.query.token) : '';
 
   return (
     headerSecret ||
@@ -130,17 +117,9 @@ function assertCronAuth(req, res) {
     || String(readHeader(req, 'x-vercel-cron') || '').trim().toLowerCase() === 'true';
 
   if (incoming !== expected && !isVercelCron) {
-    console.error('❌ Falha de autenticação do cron:', {
-      incoming: incoming ? incoming.substring(0, 10) + '...' : '(vazio)',
-      expectedLength: expected.length,
-      incomingLength: incoming.length,
-      match: incoming === expected,
-      vercelCron: isVercelCron
-    });
     return sendJson(res, { ok: false, error: 'Unauthorized cron request' }, 401);
   }
 
-  console.log('✅ Autenticação do cron aceita');
   return null;
 }
 
