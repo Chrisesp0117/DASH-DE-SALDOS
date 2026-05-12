@@ -58,6 +58,13 @@ async function generateTop10MenorSaldo(sheets, spreadsheetId) {
   const range = 'DATABASE!A2:M';
   const res = await sheets.spreadsheets.values.get({ spreadsheetId, range });
   const rows = res.data.values || [];
+  
+  // SAFETY CHECK: If DATABASE is empty, don't overwrite TOP10 with empty data
+  if (!rows || rows.length === 0) {
+    console.warn('⚠️ DATABASE está vazia - pulando geração de TOP10_MENOR_SALDO');
+    return { ok: true, skipped: true, reason: 'database_empty' };
+  }
+  
   // saldo está na coluna K (índice 10)
   const sorted = rows
     .map(r => ({
@@ -158,6 +165,19 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
   const range = 'DATABASE!A2:M';
   const res = await sheets.spreadsheets.values.get({ spreadsheetId, range });
   const rows = res.data.values || [];
+  
+  // SAFETY CHECK: If DATABASE is empty, don't overwrite SUPERVISOR/DASH with empty data
+  if (!rows || rows.length === 0) {
+    console.warn('⚠️ DATABASE está vazia - pulando geração de SUPERVISOR para evitar apagar dados');
+    return {
+      ok: true,
+      skipped: true,
+      reason: 'database_empty',
+      blocks: [],
+      totalGestores: 0
+    };
+  }
+  
   const theme = {
     titleBg: { red: 0.08, green: 0.08, blue: 0.08 },
     metaHeaderBg: { red: 0.10, green: 0.28, blue: 0.62 },

@@ -310,6 +310,19 @@ async function atomicRefreshAllDashboards(sheets, spreadsheetId) {
   try {
     // Step 1: Generate supervisor with all blocks
     const supervisorResult = await generateBlocosPorGestor(sheets, spreadsheetId);
+    
+    // SAFETY CHECK: If SUPERVISOR generation was skipped (database empty), don't update DASH sheets
+    if (supervisorResult.skipped) {
+      console.warn('⚠️ Pulando atualização atômica de dashboards - DATABASE está vazia');
+      return {
+        ok: true,
+        skipped: true,
+        reason: supervisorResult.reason || 'database_empty',
+        totalGestores: 0,
+        gestoresProcessados: 0
+      };
+    }
+    
     if (!supervisorResult || supervisorResult.ok === false) {
       return {
         ok: false,
@@ -636,6 +649,20 @@ async function createDashboardForGestor(sheets, spreadsheetId, gestor, options =
 async function ensureDashboardsForAllGestores(sheets, spreadsheetId, options = {}) {
   try {
     const supervisorResult = options.supervisorResult || await generateBlocosPorGestor(sheets, spreadsheetId);
+    
+    // SAFETY CHECK: If SUPERVISOR generation was skipped (database empty), don't update DASH sheets
+    if (supervisorResult.skipped) {
+      console.warn('⚠️ Pulando atualização de dashboards - DATABASE está vazia');
+      return {
+        ok: true,
+        skipped: true,
+        reason: supervisorResult.reason || 'database_empty',
+        totalGestores: 0,
+        gestoresProcessados: 0,
+        resultados: []
+      };
+    }
+    
     if (!supervisorResult || supervisorResult.ok === false) {
       return {
         ok: false,
