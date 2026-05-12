@@ -248,14 +248,14 @@ async function acquireJobStateLock(sheets, spreadsheetId, options = {}) {
   const now = Date.now();
   const resetCursor = options.resetCursor === true;
   const currentlyRunning = String(current.status || '') === 'running' && Number(current.leaseUntil || 0) > now;
+  // Only reset cursor if explicitly requested or if the job truly finished (stage='done')
   const completedLastRun = String(current.lastAction || '') === 'finish' || String(current.stage || '') === 'done';
   const shouldResetCursor = resetCursor || completedLastRun;
   const preservedCursor = Number.isFinite(Number(current.cursor)) && Number(current.cursor) >= 0
     ? Number(current.cursor)
     : 0;
-  const nextStage = shouldResetCursor
-    ? 'database'
-    : String(options.stage || current.stage || (currentlyRunning ? 'database' : 'database')).trim() || 'database';
+  // Always use 'database' stage on acquisition (unless resuming from a specific prior stage)
+  const nextStage = 'database';
   
   const owner = await getOwnerId();
   const state = {
@@ -953,7 +953,7 @@ async function run(options = {}) {
   const finished = nextCursor >= totalClientes;
 
   if (!finished) {
-    await writeJobCursor(sheets, process.env.SPREADSHEET_ID, nextCursor);
+    // Cursor already persisted via touchJobState above; no need to writeJobCursor separately
     await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
       stage: 'database',
       cursor: nextCursor,
