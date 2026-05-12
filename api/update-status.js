@@ -20,10 +20,9 @@ module.exports = async (req, res) => {
       ? Number(state.totalClients)
       : 0;
 
-    const cursor = Math.max(
-      Number.isFinite(Number(state.progressCursor)) ? Number(state.progressCursor) : 0,
-      Number.isFinite(Number(state.cursor)) ? Number(state.cursor) : 0
-    );
+    const progressCursor = Number.isFinite(Number(state.progressCursor)) ? Number(state.progressCursor) : 0;
+    const storedCursor = Number.isFinite(Number(state.cursor)) ? Number(state.cursor) : 0;
+    const cursor = lockMeta.running ? progressCursor : storedCursor;
 
     return sendJson(res, {
       ok: true,
