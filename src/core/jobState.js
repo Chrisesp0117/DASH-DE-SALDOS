@@ -137,6 +137,30 @@ async function getOwnerId() {
   }
 }
 
+async function startHeartbeatTimer(sheets, spreadsheetId, jobControl, intervalMs = DEFAULT_HEARTBEAT_INTERVAL_MS) {
+  if (!jobControl) return null;
+
+  const heartbeatTimer = setInterval(async () => {
+    try {
+      const current = await readJobState(sheets, spreadsheetId);
+      if (!isSameJobState(current, jobControl)) {
+        clearInterval(heartbeatTimer);
+        return;
+      }
+
+      await touchJobState(sheets, spreadsheetId, jobControl, {
+        lastAction: 'heartbeat',
+        leaseMs: 60000
+      });
+      console.log(`[heartbeat] lease refreshed for jobId=${jobControl.jobId}`);
+    } catch (e) {
+      console.warn(`[heartbeat] error: ${e && e.message ? e.message : e}`);
+    }
+  }, intervalMs);
+
+  return heartbeatTimer;
+}
+
 async function appendJobHistory(sheets, spreadsheetId, entry) {
   try {
     const values = [[
@@ -183,6 +207,66 @@ async function appendJobHistory(sheets, spreadsheetId, entry) {
       console.warn('Falha ao gravar JOB_HISTORY:', e && e.message ? e.message : e);
     }
   }
+}
+
+async function acquireJobStateLock(sheets, spreadsheetId, options = {}) {
+  const current = await readJobState(sheets, spreadsheetId);
+  const nextGeneration = Math.max(0, Number(current.generation || 0)) + 1;
+  const jobId = String(options.jobId || randomUUID());
+  const leaseMs = Math.max(60000, Number(options.leaseMs || process.env.JOB_LEASE_MS || 60 * 1000));
+  const now = Date.now();
+  const resetCursor = options.resetCursor === true;
+  const currentlyRunning = String(current.status || '') === 'running' && Number(current.leaseUntil || 0) > now;
+  const completedLastRun = String(current.lastAction || '') === 'finish' || String(current.stage || '') === 'done';
+  const shouldResetCursor = resetCursor || completedLastRun;
+  const preservedCursor = Number.isFinite(Number(current.cursor)) && Number(current.cursor) >= 0
+    ? Number(current.cursor)
+    : 0;
+
+  const owner = await getOwnerId();
+  const state = {
+    status: 'running',
+    jobId,
+    generation: nextGeneration,
+    cursor: shouldResetCursor ? 0 : preservedCursor,
+    leaseUntil: now + leaseMs,
+    updatedAt: toIsoNow(),
+    owner,
+    heartbeatAt: toIsoNow(),
+    attempts: 0,
+    lastError: '',
+    lastAction: 'acquire',
+    takeoverBy: '',
+    auditPointer: 'JOB_HISTORY',
+    stage: 'database'
+  };
+
+  try {
+    const fresh = await readJobState(sheets, spreadsheetId);
+    const running = String(fresh.status || '') === 'running' && Number(fresh.leaseUntil || 0) > Date.now();
+    if (running && !options.force) {
+      const err = new Error('Job already running by another worker');
+      err.code = 'JOB_ALREADY_RUNNING';
+      err.state = fresh;
+      throw err;
+    }
+  } catch (e) {
+    if (e && e.code === 'JOB_ALREADY_RUNNING') throw e;
+  }
+
+  await writeJobState(sheets, spreadsheetId, state);
+  await appendJobHistory(sheets, spreadsheetId, {
+    timestamp: toIsoNow(),
+    jobId: state.jobId,
+    generation: state.generation,
+    action: 'acquire',
+    owner: state.owner,
+    cursor: state.cursor,
+    leaseUntil: state.leaseUntil,
+    reason: options.reason || ''
+  });
+
+  return state;
 }
 
 function isSameJobState(current, control) {
@@ -356,7 +440,9 @@ module.exports = {
   readJobState,
   writeJobState,
   getOwnerId,
+  startHeartbeatTimer,
   appendJobHistory,
+  acquireJobStateLock,
   isSameJobState,
   assertJobStateActive,
   touchJobState,
