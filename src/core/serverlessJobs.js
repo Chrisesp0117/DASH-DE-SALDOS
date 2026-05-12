@@ -107,13 +107,16 @@ function assertCronAuth(req, res) {
   }
 
   const incoming = String(getCronSecretFromRequest(req) || '').trim();
+  const isVercelCron = String(readHeader(req, 'x-vercel-cron') || '').trim().toLowerCase() === '1'
+    || String(readHeader(req, 'x-vercel-cron') || '').trim().toLowerCase() === 'true';
 
-  if (incoming !== expected) {
+  if (incoming !== expected && !isVercelCron) {
     console.error('❌ Falha de autenticação do cron:', {
       incoming: incoming ? incoming.substring(0, 10) + '...' : '(vazio)',
       expectedLength: expected.length,
       incomingLength: incoming.length,
-      match: incoming === expected
+      match: incoming === expected,
+      vercelCron: isVercelCron
     });
     return sendJson(res, { ok: false, error: 'Unauthorized cron request' }, 401);
   }
