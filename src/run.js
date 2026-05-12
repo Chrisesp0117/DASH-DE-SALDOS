@@ -417,7 +417,7 @@ async function run(options = {}) {
 
   const clientesRes = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SPREADSHEET_ID,
-    range: 'CONFIGS!A:Z'
+    range: 'CONFIGS!A1:Z5000'
   });
 
   const clientesValues = clientesRes.data.values || [];
