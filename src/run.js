@@ -14,7 +14,7 @@ const DATABASE_HEADERS = [
   'Gestor', 'Supervisor', 'Status', 'Obs', 'DataISO', 'Identificador'
 ];
 
-const JOB_STATE_RANGE = 'JOB_STATE!A1:O1';
+const JOB_STATE_RANGE = 'JOB_STATE!A1:P1';
 const JOB_STATE_LEGACY_CURSOR_RANGE = 'JOB_STATE!A1';
 
 // Heartbeat configuration (configurable via env)
@@ -58,7 +58,7 @@ function parseJobStateRow(values) {
     const leaseUntil = Number(row[4]);
 
     // If row has extended columns (>=13), parse them
-    if (row.length >= 15) {
+    if (row.length >= 16) {
       return {
         status: String(row[0] || 'idle').trim() || 'idle',
         jobId: String(row[1] || '').trim(),

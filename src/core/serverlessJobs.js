@@ -132,9 +132,6 @@ async function runUpdateJob(options = {}) {
 
 async function runFullUpdateJob(options = {}) {
   const batchSize = Math.max(1, Number(options.batchSize || process.env.UPDATE_BATCH_SIZE || 50));
-  const maxIterations = Math.max(1, Number(options.maxIterations || process.env.UPDATE_MAX_ITERATIONS || 10));
-  const maxMs = Math.max(5000, Number(options.maxMs || process.env.CRON_MAX_RUNTIME_MS || 120000));
-  const includeSupervisor = options.includeSupervisor !== false;
   const includeDashboards = options.includeDashboards !== false;
   const rejectIfRunning = options.rejectIfRunning !== false;
   const force = options.force === true;
@@ -179,122 +176,66 @@ async function runFullUpdateJob(options = {}) {
   }
 
   const heartbeatTimer = await startHeartbeatTimer(sheets, spreadsheetId, jobControl, DEFAULT_HEARTBEAT_INTERVAL_MS);
-
-  const startedAt = Date.now();
-  let totalProcessed = 0;
-  let finished = false;
-  let iteration = 0;
-
-  while (!finished && iteration < maxIterations) {
-    if (Date.now() - startedAt >= maxMs) {
-      if (heartbeatTimer) clearInterval(heartbeatTimer);
-      await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
-      return {
-        ok: true,
-        finished: false,
-        reason: 'time_budget_reached',
-        iterations: iteration,
-        totalProcessed,
-        batchSize
-      };
-    }
-
-    iteration += 1;
-    let result;
-    try {
-      result = await runUpdateJob({
-        batchSize,
-        enableStartStatus: iteration === 1,
-        jobControl
-      });
-      console.log('[diagnostic] runUpdateJob result', { iteration, result });
-    } catch (error) {
-      if (String(error && error.code || '') === 'JOB_INTERRUPTED') {
-        console.log('[diagnostic] runUpdateJob interrupted by newer job at iteration', iteration);
-        if (heartbeatTimer) clearInterval(heartbeatTimer);
-        await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
-        return {
-          ok: true,
-          finished: false,
-          reason: 'restarted_by_newer_job',
-          iterations: iteration - 1,
-          totalProcessed,
-          batchSize
-        };
-      }
-
-      const msg = String(error && (error.message || error.code || error.status) || '').toLowerCase();
-      const isQuota = msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(error && error.status) === '429' || String(error && error.code) === '429';
-
-      if (isQuota) {
-        if (heartbeatTimer) clearInterval(heartbeatTimer);
-        await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
-        return {
-          ok: true,
-          finished: false,
-          reason: 'quota_exceeded',
-          iterations: iteration,
-          totalProcessed,
-          batchSize
-        };
-      }
-
-      if (heartbeatTimer) clearInterval(heartbeatTimer);
-      await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
-      return {
-        ok: false,
-        finished: false,
-        reason: 'update_failed',
-        iterations: iteration,
-        totalProcessed,
-        batchSize,
-        error: error && error.message ? error.message : 'Execução falhou'
-      };
-    }
-
-    if (!result || !result.ok) {
-      if (heartbeatTimer) clearInterval(heartbeatTimer);
-      await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
-      return {
-        ok: false,
-        finished: false,
-        reason: 'update_failed',
-        iterations: iteration,
-        totalProcessed,
-        batchSize,
-        error: result && result.error ? result.error : 'Execução falhou'
-      };
-    }
-
-    const active = await assertJobStateActive(sheets, spreadsheetId, jobControl);
-    console.log('[diagnostic] assertJobStateActive', { iteration, active });
-    if (!active.active) {
-      console.log('[diagnostic] job no longer active, stopping', { iteration });
+  let result;
+  try {
+    result = await runUpdateJob({
+      batchSize,
+      jobControl
+    });
+  } catch (error) {
+    if (String(error && error.code || '') === 'JOB_INTERRUPTED') {
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
       return {
         ok: true,
         finished: false,
         reason: 'restarted_by_newer_job',
-        iterations: iteration,
-        totalProcessed,
+        iterations: 0,
+        totalProcessed: 0,
         batchSize
       };
     }
 
-    totalProcessed += Number(result.processed || 0);
-    finished = result.finished === true;
+    const msg = String(error && (error.message || error.code || error.status) || '').toLowerCase();
+    const isQuota = msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(error && error.status) === '429' || String(error && error.code) === '429';
+
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
+
+    return {
+      ok: isQuota ? true : false,
+      finished: false,
+      reason: isQuota ? 'quota_exceeded' : 'update_failed',
+      iterations: 1,
+      totalProcessed: 0,
+      batchSize,
+      error: isQuota ? undefined : (error && error.message ? error.message : 'Execução falhou')
+    };
   }
 
-  if (!finished) {
+  if (!result || !result.ok) {
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
+    return {
+      ok: false,
+      finished: false,
+      reason: 'update_failed',
+      iterations: 1,
+      totalProcessed: 0,
+      batchSize,
+      error: result && result.error ? result.error : 'Execução falhou'
+    };
+  }
+
+  if (result.finished !== true) {
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
     return {
       ok: true,
       finished: false,
-      reason: 'max_iterations_reached',
-      iterations: iteration,
-      totalProcessed,
+      reason: 'batch_completed',
+      iterations: 1,
+      totalProcessed: Number(result.processed || 0),
       batchSize
     };
   }
@@ -303,9 +244,7 @@ async function runFullUpdateJob(options = {}) {
     await touchJobState(sheets, spreadsheetId, jobControl, { stage: 'supervisor', lastAction: 'pre_supervisor' });
   } catch (e) { /* best-effort */ }
 
-  const supervisorResult = includeSupervisor
-    ? await generateBlocosPorGestor(sheets, spreadsheetId)
-    : null;
+  const supervisorResult = await generateBlocosPorGestor(sheets, spreadsheetId);
 
   try {
     await touchJobState(sheets, spreadsheetId, jobControl, { stage: 'dashboards', lastAction: 'pre_dashboards' });
@@ -351,8 +290,8 @@ async function runFullUpdateJob(options = {}) {
   return {
     ok: true,
     finished: true,
-    iterations: iteration,
-    totalProcessed,
+    iterations: 1,
+    totalProcessed: Number(result.processed || 0),
     batchSize,
     dashboardResult
   };

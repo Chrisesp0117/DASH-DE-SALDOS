@@ -51,8 +51,12 @@ function isQuotaExceededError(error) {
 async function isJobActiveNow() {
   const sheets = await getSheets();
   const state = await readJobState(sheets, process.env.SPREADSHEET_ID);
-  const running = String(state.status || '') === 'running' && Number(state.leaseUntil || 0) > Date.now();
-  return { running, state };
+  const leaseUntil = Number(state.leaseUntil || 0);
+  const heartbeatAt = state && state.heartbeatAt ? Date.parse(state.heartbeatAt) : 0;
+  const heartbeatAgeMs = heartbeatAt > 0 ? Math.max(0, Date.now() - heartbeatAt) : null;
+  const staleByHeartbeat = heartbeatAgeMs !== null && heartbeatAgeMs > 60 * 1000;
+  const running = String(state.status || '') === 'running' && leaseUntil > Date.now() && !staleByHeartbeat;
+  return { running, state, lockMeta: { leaseRemainingMs: Math.max(0, leaseUntil - Date.now()), heartbeatAgeMs, staleByHeartbeat } };
 }
 
 function isJsonRequest(req) {
