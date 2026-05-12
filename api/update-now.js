@@ -739,12 +739,13 @@ module.exports = async (req, res) => {
             showMessage('✅ Todos os lotes foram concluídos!', 'success');
             manualRunActive = false;
           } else if (total > 0) {
-            // Ainda há clientes, inicia próximo lote
+            // Ainda há clientes, inicia próximo lote IMEDIATAMENTE
             console.log('[UI] Iniciando próximo lote. cursor=' + cursor + ', total=' + total);
-            addToHistory('success', 'Retomando', 'Processando próximo lote...');
-            // NÃO seta manualRunActive = false aqui, deixa rodar!
-            setTimeout(() => start({ internalRetry: true }), 500);
-            return; // Não continua processando este refresh
+            addToHistory('info', 'Continuando', 'Iniciando próximo lote...');
+            // NÃO seta manualRunActive = false, deixa continuar!
+            // Inicia próximo lote em 300ms (tempo para heartbeat limpar)
+            setTimeout(() => start({ internalRetry: true }), 300);
+            return; // Early return
           } else {
             console.log('[UI] total=0, aguardando carregamento');
             manualRunActive = false;
@@ -780,21 +781,23 @@ module.exports = async (req, res) => {
     async function start(options = {}) {
       const internalRetry = options && options.internalRetry === true;
 
-      if (manualRunActive && !internalRetry) return;
+      if (manualRunActive && !internalRetry) {
+        console.log('[UI] start() BLOCKED: manualRunActive=true and not internalRetry');
+        return;
+      }
 
+      console.log('[UI] start() EXECUTA. internalRetry=' + internalRetry + ', manualRunActive=' + manualRunActive);
       manualRunActive = true;
       startBtn.disabled = true;
       messageBox.classList.remove('show');
 
-      console.log('[UI] start() called. internalRetry=' + internalRetry);
-
       try {
         const url = startUrlBase + (forceCheck && forceCheck.checked ? '&force=true' : '');
-        console.log('[UI] POST: ' + url);
+        console.log('[UI] POST para: ' + url);
         const res = await fetch(url, { method: 'POST' });
         const json = await res.json().catch(() => ({}));
 
-        console.log('[UI] POST response. status=' + res.status + ', ok=' + json.ok + ', started=' + json.started);
+        console.log('[UI] Resposta: status=' + res.status + ', ok=' + json.ok + ', started=' + json.started);
 
         if (res.status === 409) {
           // Job já está em andamento
@@ -809,14 +812,38 @@ module.exports = async (req, res) => {
           manualRunActive = false;
 
         } else if (res.status === 202) {
-          // Job foi iniciado em background! Agora polling do status
-          addToHistory('success', 'Iniciado', 'Processando em background...');
-          showMessage('⏳ Atualização iniciada! Acompanhando progresso...', 'info');
-          console.log('[UI] Job started in background (202), manualRunActive will continue polling');
-          // Manter manualRunActive=true para continuar com polling
-          // A cada 2 segundos, refresh() vai atualizar o progresso
-          // Quando terminar (cursor >= total), vai retomar automaticamente ou finalizar
+          // Job foi iniciado em background!
+          const msg = internalRetry ? '⏳ Continuando com próximo lote...' : '⏳ Atualização iniciada! Acompanhando progresso...';
+          addToHistory('info', 'Iniciado', 'Processando em background...');
+          showMessage(msg, 'info');
+          console.log('[UI] 202 recebido, manualRunActive=true, polling continuará');
+          // Manter manualRunActive=true para continuar
           return;
+
+        } else if (!res.ok) {
+          addToHistory('error', 'Erro', json && json.error ? json.error : 'Desconhecido');
+          showMessage('❌ ' + (json && json.error ? json.error : 'Erro ao iniciar'), 'error');
+          manualRunActive = false;
+
+        } else {
+          addToHistory('success', 'Completo', 'Todos os clientes atualizados');
+          showMessage('✅ Atualização completa!', 'success');
+          manualRunActive = false;
+        }
+
+      } catch (e) {
+        console.error('[UI] Erro em start():', e && e.message);
+        addToHistory('error', 'Conexão', 'Erro ao conectar');
+        showMessage('❌ Erro de conexão: ' + (e && e.message ? e.message : 'desconhecido'), 'error');
+        manualRunActive = false;
+      } finally {
+        console.log('[UI] start() terminou. manualRunActive=' + manualRunActive);
+        setTimeout(refresh, 400);
+        if (!manualRunActive) {
+          setTimeout(refresh, 1500);
+        }
+      }
+    }
 
         } else if (!res.ok) {
           addToHistory('error', 'Erro', json && json.error ? json.error : 'Desconhecido');
