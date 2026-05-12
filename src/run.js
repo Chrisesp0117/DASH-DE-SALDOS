@@ -469,8 +469,17 @@ async function run(options = {}) {
   }
 
   if (!batchClientes.length) {
+    // Nenhum cliente neste lote... mas ainda há clientes para processar?
+    if (cursor < totalClientes) {
+      // Ainda há clientes! Não marca como finished.
+      console.log('Lote vazio em cursor=' + cursor + ' mas totalClientes=' + totalClientes + '; continuar processando');
+      await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { cursor });
+      return { ok: true, processed: 0, total: totalClientes, cursor, nextCursor: cursor, finished: false };
+    }
+    
+    // Todos foram processados
     await finishJobState(sheets, process.env.SPREADSHEET_ID, jobControl, 'idle');
-    console.log('Nenhum cliente pendente; cursor mantido para o próximo ciclo.');
+    console.log('Nenhum cliente pendente; todos foram processados.');
     return { ok: true, processed: 0, total: totalClientes, cursor, nextCursor: cursor, finished: true };
   }
 
