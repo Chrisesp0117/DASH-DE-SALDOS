@@ -243,15 +243,24 @@ async function acquireJobStateLock(sheets, spreadsheetId, options = {}) {
   const leaseMs = Math.max(60000, Number(options.leaseMs || process.env.JOB_LEASE_MS || 60 * 1000));
   const now = Date.now();
   const resetCursor = options.resetCursor === true;
+  
+  // Determine cursor: 
+  // - If explicitly requesting reset, use 0
+  // - If this is a new job (different jobId), use 0 (fresh start)
+  // - If continuing the same job, preserve current cursor
+  // - Otherwise default to 0
+  const isSameJob = String(current.jobId || '') === jobId;
+  const shouldPreserveCursor = !resetCursor && isSameJob;
   const preservedCursor = Number.isFinite(Number(current.cursor)) && Number(current.cursor) >= 0
     ? Number(current.cursor)
     : 0;
+  
   const owner = await getOwnerId();
   const state = {
     status: 'running',
     jobId,
     generation: nextGeneration,
-    cursor: resetCursor ? 0 : preservedCursor,
+    cursor: shouldPreserveCursor ? preservedCursor : 0,
     leaseUntil: now + leaseMs,
     updatedAt: toIsoNow(),
     owner,
