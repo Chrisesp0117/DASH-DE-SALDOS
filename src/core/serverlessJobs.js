@@ -21,7 +21,8 @@ function readHeader(req, name) {
   if (!headers) {
     return '';
   }
-
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
+  HEARTBEAT_STALE_THRESHOLD_MS
   if (typeof headers.get === 'function') {
     return headers.get(name) || '';
   }
@@ -47,12 +48,30 @@ function sendJson(res, payload, statusCode = 200) {
       headers: { 'content-type': 'application/json; charset=utf-8' }
     });
   }
+    function getJobLockMeta(state) {
+      const now = Date.now();
+      const leaseUntil = Number(state && state.leaseUntil || 0);
+      const heartbeatAt = state && state.heartbeatAt ? Date.parse(state.heartbeatAt) : 0;
+      const heartbeatAgeMs = heartbeatAt > 0 ? Math.max(0, now - heartbeatAt) : null;
+      const staleByHeartbeat = heartbeatAgeMs !== null && heartbeatAgeMs > HEARTBEAT_STALE_THRESHOLD_MS;
+      const status = String(state && state.status || '').trim();
+      const leaseActive = leaseUntil > now;
+      const running = status === 'running' && leaseActive && !staleByHeartbeat;
+
+      return {
+        running,
+        leaseActive,
+        staleByHeartbeat,
+        heartbeatAgeMs,
+        leaseRemainingMs: Math.max(0, leaseUntil - now)
+      };
+    }
 
   return { statusCode, body: JSON.stringify(payload) };
 }
 
-function getCronSecretFromRequest(req) {
-  const urlSecret = (() => {
+      const lockMeta = getJobLockMeta(state);
+      return { running: lockMeta.running, state, lockMeta };
     try {
       const rawUrl = String(req && req.url || '/');
       console.log('[cron-auth-debug] rawUrl:', rawUrl.substring(0, 100));
@@ -147,11 +166,15 @@ async function runFullUpdateJob(options = {}) {
 
   if (rejectIfRunning && !force) {
     const current = await readJobState(sheets, spreadsheetId);
-    const running = String(current.status || '') === 'running' && Number(current.leaseUntil || 0) > Date.now();
-    if (running) {
+    const lockMeta = getJobLockMeta(current);
+    if (lockMeta.running) {
       return {
         ok: false,
         running: true,
+        lockState: lockMeta.staleByHeartbeat ? 'active_stale' : 'active',
+        heartbeatAgeMs: lockMeta.heartbeatAgeMs,
+        leaseRemainingMs: lockMeta.leaseRemainingMs,
+        staleByHeartbeat: lockMeta.staleByHeartbeat,
         reason: 'job_already_running',
         state: current
       };

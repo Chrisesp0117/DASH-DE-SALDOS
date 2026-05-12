@@ -89,7 +89,15 @@ module.exports = async (req, res) => {
     try {
       const active = await isJobActiveNow();
       if (active.running) {
-        return sendJsonResponse(res, { ok: false, running: true, state: active.state }, 409);
+        return sendJsonResponse(res, {
+          ok: false,
+          running: true,
+          lockState: active.lockMeta && active.lockMeta.staleByHeartbeat ? 'active_stale' : 'active',
+          heartbeatAgeMs: active.lockMeta ? active.lockMeta.heartbeatAgeMs : null,
+          leaseRemainingMs: active.lockMeta ? active.lockMeta.leaseRemainingMs : 0,
+          staleByHeartbeat: active.lockMeta ? active.lockMeta.staleByHeartbeat : false,
+          state: active.state
+        }, 409);
       }
 
       const result = await runFullUpdateJob({
