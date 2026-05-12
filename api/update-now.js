@@ -100,7 +100,9 @@ module.exports = async (req, res) => {
         }, 409);
       }
 
-      const result = await runFullUpdateJob({
+      // Inicia o job em background (não aguarda conclusão)
+      // Isso permite que o cliente veja progresso em tempo real via polling
+      const jobPromise = runFullUpdateJob({
         batchSize,
         maxMs: Math.max(60000, Number(process.env.CRON_MAX_RUNTIME_MS || 120000)),
         rejectIfRunning: true,
@@ -108,8 +110,18 @@ module.exports = async (req, res) => {
         resetCursor,
         includeSupervisor: !databaseOnly,
         includeDashboards: !databaseOnly
+      }).catch(err => {
+        console.error('Background job error:', err && err.message);
       });
-      return sendJsonResponse(res, result, result && result.ok === false ? 500 : 200);
+
+      // Retorna imediatamente ao cliente sem aguardar
+      return sendJsonResponse(res, {
+        ok: true,
+        started: true,
+        message: 'Atualização iniciada. Acompanhe o progresso em tempo real.',
+        refreshInterval: 2000
+      }, 202);
+
     } catch (error) {
       const payload = {
         ok: false,
@@ -644,22 +656,37 @@ module.exports = async (req, res) => {
           const state = json && json.state ? json.state : {};
           const running = String(state.status || '') === 'running' && Number(state.leaseUntil || 0) > Date.now();
 
-          if (!running) {
-            // Job finished, start next batch
-            await new Promise(r => setTimeout(r, 500));
-            return await start({ internalRetry: true });
+          // Ainda rodando? Continua esperando
+          if (running) {
+            waitForIdleTimer = setTimeout(checkAndRetry, 2000);
+            return;
           }
 
+          // Job terminou! Verifica se pode iniciar próximo
+          const total = Number(json && json.totalClients || 0);
+          const cursor = Number(json && json.displayCursor || 0);
+
+          if (cursor < total) {
+            // Ainda há clientes para processar, inicia próximo lote automaticamente
+            addToHistory('success', 'Retomando', 'Iniciando próximo lote...');
+            await new Promise(r => setTimeout(r, 300));
+            return await start({ internalRetry: true });
+          } else {
+            // Todos os clientes foram processados!
+            addToHistory('success', 'Completo', 'Todos os clientes atualizados');
+            showMessage('✅ Todos os lotes foram concluídos!', 'success');
+            manualRunActive = false;
+            await refresh();
+          }
+
+        } catch (e) {
           if (Date.now() - startedAt > maxWaitMs) {
             addToHistory('error', 'Timeout', 'Excedeu tempo máximo de espera');
-            showMessage('⏱️ Tempo de espera excedido. Atualização continua em andamento.', 'info');
+            showMessage('⏱️ Tempo de espera excedido.', 'info');
             manualRunActive = false;
             await refresh();
             return;
           }
-
-          waitForIdleTimer = setTimeout(checkAndRetry, 2000);
-        } catch (e) {
           waitForIdleTimer = setTimeout(checkAndRetry, 2000);
         }
       }
@@ -697,6 +724,22 @@ module.exports = async (req, res) => {
           progressFill.classList.add('complete');
         } else {
           progressFill.classList.remove('complete');
+        }
+
+        // Se manualRunActive mas job não está mais rodando
+        if (manualRunActive && desc.indicator !== 'running') {
+          // Job terminou!
+          if (cursor >= total) {
+            // Todos processados
+            addToHistory('success', 'Completo', 'Todos os clientes atualizados');
+            showMessage('✅ Todos os lotes foram concluídos!', 'success');
+            manualRunActive = false;
+          } else {
+            // Ainda há clientes, inicia próximo lote
+            addToHistory('success', 'Retomando', 'Iniciando próximo lote...');
+            manualRunActive = false;
+            setTimeout(() => start({ internalRetry: true }), 500);
+          }
         }
 
         // Update buttons
@@ -739,31 +782,44 @@ module.exports = async (req, res) => {
         const json = await res.json().catch(() => ({}));
 
         if (res.status === 409) {
+          // Job já está em andamento
           const desc = getStatusDescription(json, json.state || {});
           if (desc.indicator === 'error') {
             addToHistory('error', 'Bloqueado', 'Lock em estado inválido');
             showMessage('⚠️ Há um lock que precisa ser resolvido. Marque "Forçar" se necessário.', 'error');
           } else {
             addToHistory('info', 'Aguardando', 'Outro lote em progresso');
-            showMessage('ℹ️ Outro lote já está em progresso. Aguardando...', 'info');
+            showMessage('ℹ️ Outro lote já está em progresso. Acompanhando progresso...', 'info');
           }
           manualRunActive = false;
+
+        } else if (res.status === 202) {
+          // Job foi iniciado em background! Agora polling do status
+          addToHistory('success', 'Iniciado', 'Processando em background...');
+          showMessage('⏳ Atualização iniciada! Acompanhando progresso...', 'info');
+          // Manter manualRunActive=true para continuar com polling
+          // A cada 2 segundos, refresh() vai atualizar o progresso
+          // Quando terminar (cursor >= total), vai retomar automaticamente ou finalizareturn;
+
         } else if (!res.ok) {
           addToHistory('error', 'Erro', json && json.error ? json.error : 'Desconhecido');
           showMessage('❌ ' + (json && json.error ? json.error : 'Erro ao iniciar'), 'error');
           manualRunActive = false;
-        } else {
-          if (json && json.finished === false) {
-            addToHistory('success', 'Lote OK', 'Continuando...');
-            showMessage('✓ Lote concluído. Continuando com o próximo...', 'success');
-            await waitForIdleAndRetry();
-            return;
-          }
 
+        } else if (json && json.finished === false) {
+          // Resposta antiga: lote concluído, mas há mais para fazer
+          addToHistory('success', 'Lote OK', 'Continuando...');
+          showMessage('✓ Lote concluído. Continuando com o próximo...', 'success');
+          await waitForIdleAndRetry();
+          return;
+
+        } else {
+          // Resposta antiga: tudo completo
           addToHistory('success', 'Completo', 'Todos os clientes atualizados');
           showMessage('✅ Atualização completa!', 'success');
           manualRunActive = false;
         }
+
       } catch (e) {
         addToHistory('error', 'Conexão', 'Erro ao conectar');
         showMessage('❌ Erro de conexão: ' + (e && e.message ? e.message : 'desconhecido'), 'error');
