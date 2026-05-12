@@ -135,8 +135,8 @@ module.exports = async (req, res) => {
     }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-      background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f7fa;
       min-height: 100vh;
       display: flex;
       align-items: center;
@@ -145,111 +145,154 @@ module.exports = async (req, res) => {
     }
 
     .container {
-      background: linear-gradient(to bottom, #ffffff 0%, #f9f9f9 100%);
-      border-radius: 20px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
-      padding: 50px 40px;
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.08);
+      padding: 40px;
       text-align: center;
-      max-width: 500px;
+      max-width: 600px;
       width: 100%;
-      border: 3px solid #ffa500;
     }
 
     .header {
-      margin-bottom: 30px;
+      margin-bottom: 40px;
     }
 
     .icon {
-      font-size: 60px;
-      margin-bottom: 15px;
+      font-size: 56px;
+      margin-bottom: 16px;
       display: inline-block;
-      animation: pulse 2s ease-in-out infinite;
+      animation: pulse 2.5s ease-in-out infinite;
     }
 
     @keyframes pulse {
       0%, 100% { transform: scale(1); opacity: 1; }
-      50% { transform: scale(1.1); opacity: 0.8; }
+      50% { transform: scale(1.05); opacity: 0.8; }
     }
 
     h1 {
-      color: #1a1a1a;
-      font-size: 32px;
+      color: #1a2332;
+      font-size: 28px;
       font-weight: 700;
-      margin-bottom: 10px;
-      letter-spacing: -0.5px;
+      margin-bottom: 6px;
     }
 
     .subtitle {
-      color: #666;
-      font-size: 14px;
+      color: #7c8999;
+      font-size: 13px;
       font-weight: 500;
       text-transform: uppercase;
-      letter-spacing: 1px;
-      margin-bottom: 30px;
+      letter-spacing: 0.5px;
     }
 
-    .stats {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 20px;
-      margin-bottom: 30px;
-      background: #f0f0f0;
-      padding: 20px;
+    /* Status Section */
+    .status-section {
+      background: linear-gradient(135deg, #f8fafc 0%, #eef2f7 100%);
       border-radius: 12px;
-      border-left: 4px solid #ffa500;
+      padding: 24px;
+      margin-bottom: 24px;
+      border: 1px solid #e1e8f0;
+      text-align: left;
     }
 
-    .stat-item {
-      text-align: center;
+    .status-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
     }
 
-    .stat-label {
-      color: #999;
-      font-size: 12px;
-      text-transform: uppercase;
+    .status-indicator {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #10b981;
+      animation: none;
+    }
+
+    .status-indicator.running {
+      background: #fbbf24;
+      animation: blink 1s ease-in-out infinite;
+    }
+
+    .status-indicator.error {
+      background: #ef4444;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .status-text {
+      color: #1a2332;
+      font-size: 14px;
       font-weight: 600;
+    }
+
+    .status-detail {
+      color: #7c8999;
+      font-size: 12px;
+      line-height: 1.5;
+      margin-top: 8px;
+    }
+
+    /* Progress Section */
+    .progress-section {
+      margin-bottom: 28px;
+    }
+
+    .progress-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
       margin-bottom: 8px;
+      font-size: 13px;
+      color: #1a2332;
+      font-weight: 600;
     }
 
-    .stat-value {
-      color: #1a1a1a;
-      font-size: 28px;
+    .progress-number {
+      color: #3b82f6;
       font-weight: 700;
-    }
-
-    .stat-value.amber {
-      color: #ffa500;
+      font-size: 14px;
     }
 
     .progress-bar {
       width: 100%;
-      height: 8px;
-      background: #e0e0e0;
-      border-radius: 4px;
+      height: 10px;
+      background: #e5e7eb;
+      border-radius: 6px;
       overflow: hidden;
-      margin: 20px 0;
+      box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.05);
     }
 
     .progress-fill {
       height: 100%;
-      background: linear-gradient(90deg, #ffa500 0%, #ff8c00 100%);
-      border-radius: 4px;
-      transition: width 0.3s ease;
+      background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%);
+      border-radius: 6px;
+      transition: width 0.4s ease;
       width: 0%;
+      box-shadow: 0 0 10px rgba(59, 130, 246, 0.3);
     }
 
+    .progress-fill.complete {
+      background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+    }
+
+    /* Action Buttons */
     .button-group {
       display: flex;
       gap: 12px;
-      margin-top: 30px;
+      margin-bottom: 20px;
     }
 
     button {
       flex: 1;
-      padding: 14px 20px;
+      padding: 12px 16px;
       border: none;
       border-radius: 10px;
-      font-size: 16px;
+      font-size: 14px;
       font-weight: 700;
       cursor: pointer;
       transition: all 0.3s ease;
@@ -258,14 +301,14 @@ module.exports = async (req, res) => {
     }
 
     #startBtn {
-      background: linear-gradient(135deg, #ffa500 0%, #ff8c00 100%);
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
       color: white;
-      box-shadow: 0 4px 15px rgba(255, 165, 0, 0.3);
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
     }
 
     #startBtn:hover:not([disabled]) {
       transform: translateY(-2px);
-      box-shadow: 0 8px 20px rgba(255, 165, 0, 0.4);
+      box-shadow: 0 8px 20px rgba(59, 130, 246, 0.4);
     }
 
     #startBtn[disabled] {
@@ -274,41 +317,128 @@ module.exports = async (req, res) => {
     }
 
     #refreshBtn {
-      background: #2d2d2d;
-      color: white;
-      flex: 0.5;
+      background: #e5e7eb;
+      color: #374151;
+      flex: 0.35;
+      font-weight: 600;
+      font-size: 16px;
     }
 
     #refreshBtn:hover:not([disabled]) {
-      background: #1a1a1a;
-      transform: translateY(-2px);
+      background: #d1d5db;
+      transform: rotate(180deg);
     }
 
-    .status-text {
-      color: #999;
+    /* Options */
+    .options {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .option {
+      display: flex;
+      align-items: center;
+      gap: 6px;
       font-size: 13px;
-      margin-top: 20px;
-      line-height: 1.6;
+      color: #7c8999;
     }
 
-    .error {
-      background: #ffebee;
-      color: #c62828;
-      padding: 12px;
+    .option input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+    }
+
+    /* Messages */
+    .message-box {
+      display: none;
+      padding: 12px 14px;
       border-radius: 8px;
-      margin-top: 15px;
       font-size: 13px;
-      border-left: 4px solid #c62828;
+      margin-bottom: 16px;
+      border-left: 4px solid;
+      animation: slideIn 0.3s ease;
     }
 
-    .success {
-      background: #e8f5e9;
-      color: #2e7d32;
-      padding: 12px;
-      border-radius: 8px;
-      margin-top: 15px;
-      font-size: 13px;
-      border-left: 4px solid #2e7d32;
+    .message-box.show {
+      display: block;
+    }
+
+    @keyframes slideIn {
+      from { transform: translateX(-10px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    .message-box.error {
+      background: #fee2e2;
+      color: #b91c1c;
+      border-left-color: #ef4444;
+    }
+
+    .message-box.success {
+      background: #dcfce7;
+      color: #166534;
+      border-left-color: #22c55e;
+    }
+
+    .message-box.info {
+      background: #dbeafe;
+      color: #0c4a6e;
+      border-left-color: #3b82f6;
+    }
+
+    /* History */
+    .history-section {
+      text-align: left;
+      background: #f9fafb;
+      border-radius: 10px;
+      padding: 16px;
+      border: 1px solid #e5e7eb;
+    }
+
+    .history-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+    }
+
+    .history-item {
+      font-size: 12px;
+      color: #7c8999;
+      padding: 8px;
+      border-radius: 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .history-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .history-item.running {
+      background: #fef3c7;
+      color: #7c2d12;
+    }
+
+    .history-item.success {
+      background: #f0fdf4;
+      color: #166534;
+    }
+
+    .history-item.error {
+      background: #fef2f2;
+      color: #991b1b;
+    }
+
+    .history-time {
+      font-weight: 600;
     }
 
     .hidden {
@@ -321,142 +451,193 @@ module.exports = async (req, res) => {
     <div class="header">
       <div class="icon" id="statusIcon">⚡</div>
       <h1>Atualização de Saldos</h1>
-      <div class="subtitle">Painel de Controle</div>
+      <div class="subtitle">Central de Controle</div>
     </div>
 
-    <div class="stats">
-      <div class="stat-item">
-        <div class="stat-label">Status</div>
-        <div class="stat-value" id="statusLabel">Carregando...</div>
+    <!-- Status Live -->
+    <div class="status-section">
+      <div class="status-header">
+        <div class="status-indicator" id="statusIndicator"></div>
+        <div class="status-text" id="statusLabel">Carregando...</div>
       </div>
-      <div class="stat-item">
-        <div class="stat-label">Progresso</div>
-        <div class="stat-value amber" id="counter">0/0</div>
+      <div class="status-detail" id="statusDetail">Conectando ao servidor...</div>
+    </div>
+
+    <!-- Progress Bar -->
+    <div class="progress-section">
+      <div class="progress-label">
+        <span>Progresso</span>
+        <span class="progress-number"><span id="currentProgress">0</span>/<span id="totalProgress">0</span></span>
+      </div>
+      <div class="progress-bar">
+        <div class="progress-fill" id="progressFill"></div>
       </div>
     </div>
 
-    <div class="progress-bar">
-      <div class="progress-fill" id="progressFill"></div>
-    </div>
+    <!-- Message Box -->
+    <div class="message-box" id="messageBox"></div>
 
-    <div class="status-text" id="statusText">Carregando informações...</div>
-
+    <!-- Action Buttons -->
     <div class="button-group">
       <button id="startBtn">Atualizar Agora</button>
       <button id="refreshBtn">↻</button>
     </div>
 
-    <div style="margin-top:12px; display:flex; justify-content:center; gap:8px; align-items:center;">
-      <label style="font-size:13px; color:#666"><input id="forceCheck" type="checkbox" style="margin-right:8px"> Forçar</label>
+    <!-- Options -->
+    <div class="options">
+      <label class="option">
+        <input id="forceCheck" type="checkbox">
+        <span>Forçar</span>
+      </label>
     </div>
 
-    <div id="messageBox"></div>
+    <!-- History -->
+    <div class="history-section">
+      <div class="history-title">Histórico Recent</div>
+      <div id="historyList">
+        <div style="color: #b4b5b7; font-size: 12px; padding: 8px; text-align: center;">Carregando...</div>
+      </div>
+    </div>
   </div>
 
   <script>
-    const statusEl = document.getElementById('statusLabel');
-    const counterEl = document.getElementById('counter');
+    // DOM Elements
+    const statusLabel = document.getElementById('statusLabel');
+    const statusDetail = document.getElementById('statusDetail');
+    const statusIndicator = document.getElementById('statusIndicator');
+    const statusIcon = document.getElementById('statusIcon');
+    const currentProgress = document.getElementById('currentProgress');
+    const totalProgress = document.getElementById('totalProgress');
+    const progressFill = document.getElementById('progressFill');
     const messageBox = document.getElementById('messageBox');
     const startBtn = document.getElementById('startBtn');
     const refreshBtn = document.getElementById('refreshBtn');
-    const progressFill = document.getElementById('progressFill');
-    const statusText = document.getElementById('statusText');
-    const statusIcon = document.getElementById('statusIcon');
     const forceCheck = document.getElementById('forceCheck');
+    const historyList = document.getElementById('historyList');
+
+    // Config
     const statusUrl = '/api/update-status?secret=${encodeURIComponent(secret)}';
     const startUrlBase = '/api/update-now?secret=${encodeURIComponent(secret)}';
-    let manualRunActive = false;
+
+    // State
     let refreshInFlight = false;
-    let initialStatusLoaded = false;
-    let manualRetryTimer = null;
-    let idleWaitTimer = null;
-    let lastUserMessage = '';
+    let manualRunActive = false;
+    let waitForIdleTimer = null;
+    let lastKnownState = null;
+    let executionHistory = [];
 
+    // Utilities
     function showMessage(text, type) {
-      lastUserMessage = text;
-      messageBox.innerHTML = '<div class="' + type + '">' + text.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+      messageBox.className = 'message-box show ' + type;
+      messageBox.textContent = text;
+      setTimeout(() => {
+        messageBox.classList.remove('show');
+      }, 5000);
     }
 
-    function setManualState(running) {
-      manualRunActive = running;
-      startBtn.disabled = running;
-      refreshBtn.disabled = running;
-      if (manualRetryTimer) {
-        clearTimeout(manualRetryTimer);
-        manualRetryTimer = null;
+    function formatTime(date) {
+      const now = new Date();
+      const diff = now - date;
+      if (diff < 60000) return 'agora';
+      if (diff < 3600000) return Math.floor(diff / 60000) + 'm';
+      return Math.floor(diff / 3600000) + 'h';
+    }
+
+    function formatDate(dateStr) {
+      if (!dateStr) return '—';
+      const date = new Date(dateStr);
+      return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function updateHistoryUI() {
+      if (executionHistory.length === 0) {
+        historyList.innerHTML = '<div style="color: #b4b5b7; font-size: 12px; padding: 8px; text-align: center;">Nenhuma execução recente</div>';
+        return;
       }
-      if (idleWaitTimer) {
-        clearTimeout(idleWaitTimer);
-        idleWaitTimer = null;
-      }
+
+      historyList.innerHTML = executionHistory
+        .slice(0, 5)
+        .map((item, idx) => \`
+          <div class="history-item \${item.status}">
+            <div>
+              <span class="history-time">\${item.time}</span>
+              <span style="margin: 0 8px;">•</span>
+              <span>\${item.label}</span>
+            </div>
+            <div style="font-size: 11px; color: inherit; opacity: 0.7;">\${item.details}</div>
+          </div>
+        \`).join('');
     }
 
-    function renderRunningState(label, icon, text) {
-      statusEl.textContent = label;
-      statusIcon.textContent = icon;
-      statusText.textContent = text;
+    function addToHistory(status, label, details) {
+      const now = new Date();
+      executionHistory.unshift({
+        status: status,
+        label: label,
+        details: details,
+        time: formatDate(now),
+        timestamp: now
+      });
+      updateHistoryUI();
     }
 
-    function renderLoadingState(message = 'Carregando status...') {
-      statusEl.textContent = '⏳ Carregando';
-      statusIcon.textContent = '⌛';
-      statusText.textContent = message;
-      counterEl.textContent = '— / —';
-      progressFill.style.width = '12%';
-      startBtn.disabled = true;
-      refreshBtn.disabled = true;
-    }
-
-    function describeLockState(json) {
+    function getStatusDescription(json, state) {
       const lockState = String(json && json.lockState || '').trim();
       const leaseRemainingMs = Number(json && json.leaseRemainingMs || 0);
-      const heartbeatAgeMs = json && json.heartbeatAgeMs !== null && json.heartbeatAgeMs !== undefined
-        ? Number(json.heartbeatAgeMs)
-        : null;
+      const heartbeatAgeMs = json && json.heartbeatAgeMs !== null ? Number(json.heartbeatAgeMs) : null;
+      const total = Number(json && json.totalClients || 0);
+      const cursor = Number(json && json.displayCursor || 0);
+      const pct = total > 0 ? Math.round((cursor / total) * 100) : 0;
 
+      // Running states
       if (lockState === 'active') {
+        const remainingSecs = Math.max(0, Math.ceil(leaseRemainingMs / 1000));
         return {
-          label: '⏳ Em Progresso',
+          label: '⏳ Processando',
+          indicator: 'running',
+          detail: \`Lote em andamento. Progresso: \${cursor}/\${total} (\${pct}%). Restam \${remainingSecs}s.\`,
           icon: '⌛',
-          text: 'A atualização está em andamento. Restam ' + Math.max(0, Math.ceil(leaseRemainingMs / 1000)) + 's no lock.',
-          disabled: true,
-          kind: 'active'
+          canStart: false
         };
       }
 
       if (lockState === 'active_stale') {
+        const staleSecs = heartbeatAgeMs ? Math.ceil(heartbeatAgeMs / 1000) : '?';
         return {
-          label: '⚠️ Lock Ativo',
-          icon: '⌛',
-          text: 'O job ainda está marcado como rodando, mas o heartbeat está antigo (' + (heartbeatAgeMs ? Math.ceil(heartbeatAgeMs / 1000) : '?') + 's). Pode estar travado.',
-          disabled: false,
-          kind: 'stale'
+          label: '⚠️ Possível Travamento',
+          indicator: 'error',
+          detail: \`Lock ativo há \${staleSecs}s sem heartbeat. Pode estar travado. Use Forçar para retomar.\`,
+          icon: '⚠️',
+          canStart: true
         };
       }
 
       if (lockState === 'expired') {
         return {
-          label: '⚠️ Lock Expirado',
+          label: '⏰ Lock Expirado',
+          indicator: 'error',
+          detail: 'Atualização anterior expirou. Use Forçar para retomar ou clique para recomeçar.',
           icon: '⏰',
-          text: 'O job estava rodando, mas o lease já expirou. O próximo clique deve liberar normalmente, ou use Forçar se quiser tomar o lock.',
-          disabled: false,
-          kind: 'expired'
+          canStart: true
         };
       }
 
+      // Idle state
+      const lastUpdate = state && state.updatedAt ? formatDate(state.updatedAt) : null;
       return {
         label: '✅ Pronto',
+        indicator: 'idle',
+        detail: lastUpdate ? \`Última atualização: \${lastUpdate}\` : 'Nenhuma atualização em andamento.',
         icon: '✨',
-        text: 'Nenhuma atualização em andamento.',
-        disabled: false,
-        kind: 'idle'
+        canStart: true
       };
     }
 
-    async function waitForIdleAndRetry(delayMs = 2000, maxWaitMs = 10 * 60 * 1000) {
+    async function waitForIdleAndRetry() {
+      const maxWaitMs = 10 * 60 * 1000;
       const startedAt = Date.now();
 
-      async function tick() {
+      async function checkAndRetry() {
         try {
           const res = await fetch(statusUrl, { cache: 'no-store' });
           const json = await res.json().catch(() => ({}));
@@ -464,78 +645,80 @@ module.exports = async (req, res) => {
           const running = String(state.status || '') === 'running' && Number(state.leaseUntil || 0) > Date.now();
 
           if (!running) {
-            renderRunningState('⏳ Continuando', '⌛', 'O lote anterior terminou. Iniciando o próximo...');
-            idleWaitTimer = setTimeout(() => start({ internalRetry: true }), 300);
-            return;
+            // Job finished, start next batch
+            await new Promise(r => setTimeout(r, 500));
+            return await start({ internalRetry: true });
           }
 
           if (Date.now() - startedAt > maxWaitMs) {
-            showMessage('⚠️ Tempo de espera excedido. A atualização continua em andamento; tente novamente mais tarde.', 'error');
-            setManualState(false);
+            addToHistory('error', 'Timeout', 'Excedeu tempo máximo de espera');
+            showMessage('⏱️ Tempo de espera excedido. Atualização continua em andamento.', 'info');
+            manualRunActive = false;
+            await refresh();
             return;
           }
 
-          renderRunningState('⏳ Em Progresso', '⌛', 'Aguardando o término do lote atual...');
-          idleWaitTimer = setTimeout(tick, delayMs);
+          waitForIdleTimer = setTimeout(checkAndRetry, 2000);
         } catch (e) {
-          idleWaitTimer = setTimeout(tick, delayMs);
+          waitForIdleTimer = setTimeout(checkAndRetry, 2000);
         }
       }
 
-      tick();
+      checkAndRetry();
     }
 
     async function refresh() {
-      if (refreshInFlight) {
-        return;
-      }
-
+      if (refreshInFlight) return;
       refreshInFlight = true;
-
-      if (!initialStatusLoaded) {
-        renderLoadingState('Carregando status da atualização...');
-      }
 
       try {
         const res = await fetch(statusUrl, { cache: 'no-store' });
         const json = await res.json().catch(() => ({}));
         const state = json && json.state ? json.state : {};
-        const total = Number(json && json.totalClients ? json.totalClients : 0);
-        const cursor = Number.isFinite(Number(json && json.displayCursor))
-          ? Number(json.displayCursor)
-          : Number(state.cursor || 0);
-        const lockView = describeLockState(json);
-        const running = lockView.kind === 'active' || lockView.kind === 'stale';
+        const total = Number(json && json.totalClients || 0);
+        const cursor = Number(json && json.displayCursor !== undefined ? json.displayCursor : state.cursor || 0);
 
+        lastKnownState = json;
+
+        const desc = getStatusDescription(json, state);
+
+        // Update status section
+        statusLabel.textContent = desc.label;
+        statusIcon.textContent = desc.icon;
+        statusDetail.textContent = desc.detail;
+        statusIndicator.className = 'status-indicator ' + (desc.indicator === 'running' ? 'running' : desc.indicator === 'error' ? 'error' : '');
+
+        // Update progress
+        currentProgress.textContent = cursor;
+        totalProgress.textContent = total;
         const pct = total > 0 ? Math.round((cursor / total) * 100) : 0;
         progressFill.style.width = pct + '%';
-
-        if (manualRunActive && !running) {
-          renderRunningState('⏳ Continuando', '⌛', 'Processando o próximo lote...');
-          startBtn.disabled = true;
-          refreshBtn.disabled = true;
-        } else if (running) {
-          renderRunningState(lockView.label, lockView.icon, lockView.text);
-          startBtn.disabled = !forceCheck.checked;
-          refreshBtn.disabled = true;
+        if (cursor >= total && total > 0) {
+          progressFill.classList.add('complete');
         } else {
-          statusEl.textContent = lockView.label;
-          statusIcon.textContent = lockView.icon;
-          statusText.textContent = state.updatedAt ? ('Última: ' + state.updatedAt) : lockView.text;
+          progressFill.classList.remove('complete');
+        }
+
+        // Update buttons
+        if (desc.indicator === 'running') {
+          startBtn.disabled = !forceCheck.checked;
+          refreshBtn.disabled = false;
+          if (!manualRunActive) {
+            messageBox.innerHTML = '';
+          }
+        } else {
           startBtn.disabled = false;
           refreshBtn.disabled = false;
         }
 
-        counterEl.textContent = cursor + ' / ' + total;
-        initialStatusLoaded = true;
       } catch (e) {
-        statusEl.textContent = '❌ Erro';
-        statusIcon.textContent = '⚠️';
-        statusText.textContent = 'Falha ao conectar. A contagem não pôde ser carregada.';
-        counterEl.textContent = '— / —';
+        statusLabel.textContent = '❌ Erro';
+        statusIcon.textContent = '🔌';
+        statusDetail.textContent = 'Falha ao conectar com servidor.';
+        currentProgress.textContent = '?';
+        totalProgress.textContent = '?';
         startBtn.disabled = false;
         refreshBtn.disabled = false;
-        initialStatusLoaded = true;
       } finally {
         refreshInFlight = false;
       }
@@ -544,52 +727,60 @@ module.exports = async (req, res) => {
     async function start(options = {}) {
       const internalRetry = options && options.internalRetry === true;
 
-      if (manualRunActive && !internalRetry) {
-        return;
-      }
+      if (manualRunActive && !internalRetry) return;
 
-      setManualState(true);
-      renderRunningState('⏳ Iniciando...', '⏳', 'Iniciando atualização manual...');
-      messageBox.innerHTML = '';
-      lastUserMessage = '';
+      manualRunActive = true;
+      startBtn.disabled = true;
+      messageBox.classList.remove('show');
 
       try {
-        const sendUrl = startUrlBase + (forceCheck && forceCheck.checked ? '&force=true' : '');
-        const res = await fetch(sendUrl, { method: 'POST' });
+        const url = startUrlBase + (forceCheck && forceCheck.checked ? '&force=true' : '');
+        const res = await fetch(url, { method: 'POST' });
         const json = await res.json().catch(() => ({}));
 
         if (res.status === 409) {
-          const lockView = describeLockState(json);
-          if (lockView.kind === 'stale' || lockView.kind === 'expired') {
-            showMessage('⚠️ Há um lock antigo ou expirado. Marque "Forçar" para tomar o controle e reiniciar.', 'error');
+          const desc = getStatusDescription(json, json.state || {});
+          if (desc.indicator === 'error') {
+            addToHistory('error', 'Bloqueado', 'Lock em estado inválido');
+            showMessage('⚠️ Há um lock que precisa ser resolvido. Marque "Forçar" se necessário.', 'error');
           } else {
-            showMessage('ℹ️ Já existe uma atualização em progresso. A tela continua atualizando a contagem enquanto o lote roda.', 'success');
+            addToHistory('info', 'Aguardando', 'Outro lote em progresso');
+            showMessage('ℹ️ Outro lote já está em progresso. Aguardando...', 'info');
           }
-          setManualState(false);
+          manualRunActive = false;
         } else if (!res.ok) {
-          showMessage('❌ ' + ((json && json.error) ? json.error : 'Erro ao iniciar'), 'error');
-          setManualState(false);
+          addToHistory('error', 'Erro', json && json.error ? json.error : 'Desconhecido');
+          showMessage('❌ ' + (json && json.error ? json.error : 'Erro ao iniciar'), 'error');
+          manualRunActive = false;
         } else {
           if (json && json.finished === false) {
-            showMessage('⏳ Lote concluído. Aguardando o próximo ciclo...', 'success');
-            await waitForIdleAndRetry(2000);
+            addToHistory('success', 'Lote OK', 'Continuando...');
+            showMessage('✓ Lote concluído. Continuando com o próximo...', 'success');
+            await waitForIdleAndRetry();
             return;
           }
 
-          showMessage('✅ Atualização finalizada com sucesso!', 'success');
-          setManualState(false);
+          addToHistory('success', 'Completo', 'Todos os clientes atualizados');
+          showMessage('✅ Atualização completa!', 'success');
+          manualRunActive = false;
         }
       } catch (e) {
-        showMessage('❌ Erro ao conectar', 'error');
-        setManualState(false);
+        addToHistory('error', 'Conexão', 'Erro ao conectar');
+        showMessage('❌ Erro de conexão: ' + (e && e.message ? e.message : 'desconhecido'), 'error');
+        manualRunActive = false;
       } finally {
-        setTimeout(refresh, 600);
-        setTimeout(refresh, 2000);
+        setTimeout(refresh, 400);
+        if (!manualRunActive) {
+          setTimeout(refresh, 1500);
+        }
       }
     }
 
+    // Event listeners
     startBtn.addEventListener('click', start);
     refreshBtn.addEventListener('click', refresh);
+
+    // Initialize
     refresh();
     setInterval(refresh, 2000);
   </script>
