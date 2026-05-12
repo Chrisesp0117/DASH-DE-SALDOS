@@ -25,7 +25,7 @@ Relatórios podem ser gerados através de chamadas HTTP (por exemplo `api/report
 
 ---
 
-## Atualização automática (cron)
+## Atualização automática (cron-job.org)
 
 Use o endpoint principal (atualização completa em fatias dentro do tempo da função, depois supervisor + dashboards ao terminar):
 
@@ -40,6 +40,8 @@ Comportamento típico:
 - Quando `finished: true`, a DATABASE foi percorrida e os agregados/dashboards foram atualizados nessa execução.
 
 **Frequência sugerida:** intervalo curto o suficiente para vários ticks completarem um ciclo (por exemplo a cada 2–5 minutos), com `batchSize` moderado para reduzir concorrência entre usuários.
+
+> Observação: a Vercel fica só como hospedeira dos endpoints. Quem dispara o job é o cron-job.org.
 
 Query opcionais em `update-full`:
 
