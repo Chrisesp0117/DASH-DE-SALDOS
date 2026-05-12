@@ -542,7 +542,7 @@ async function run(options = {}) {
     }
   ]);
 
-  await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { cursor: cursor + batchRows.length });
+  await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { totalClients: totalClientes, cursor: cursor + batchRows.length });
   console.log('[diagnostic] touched job state', { jobId: jobControl.jobId, generation: jobControl.generation, nextCursor: cursor + batchRows.length });
 
   const nextCursor = cursor + batchRows.length;
@@ -553,6 +553,7 @@ async function run(options = {}) {
     await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
       stage: 'database',
       cursor: nextCursor,
+      totalClients: totalClientes,
       lastAction: 'database_progress'
     });
     const batchTime = new Date().toISOString();
@@ -562,6 +563,7 @@ async function run(options = {}) {
 
   await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
     stage: 'database_complete',
+    totalClients: totalClientes,
     lastAction: 'database_complete'
   });
   await finishJobState(sheets, process.env.SPREADSHEET_ID, jobControl, 'idle');
