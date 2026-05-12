@@ -529,7 +529,7 @@ module.exports = async (req, res) => {
 
     // Config
     const statusUrl = '/api/update-status?secret=${encodeURIComponent(secret)}';
-    const startUrlBase = '/api/update-now?secret=${encodeURIComponent(secret)}';
+    const startUrlBase = '/api/update-now?secret=${encodeURIComponent(secret)}&batchSize=50';
 
     // State
     let refreshInFlight = false;
