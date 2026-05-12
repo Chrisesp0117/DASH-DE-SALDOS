@@ -20,16 +20,18 @@ module.exports = async (req, res) => {
       ? Number(state.totalClients)
       : 0;
 
+    const cursor = Math.max(
+      Number.isFinite(Number(state.progressCursor)) ? Number(state.progressCursor) : 0,
+      Number.isFinite(Number(state.cursor)) ? Number(state.cursor) : 0
+    );
+
     return sendJson(res, {
       ok: true,
       running: lockMeta.running,
       lockState: lockMeta.lockState,
       stage: String(state.stage || 'idle'),
-      cursor: Number.isFinite(Number(state.cursor)) ? Number(state.cursor) : 0,
-      displayCursor: Math.max(
-        Number.isFinite(Number(state.progressCursor)) ? Number(state.progressCursor) : 0,
-        Number.isFinite(Number(state.cursor)) ? Number(state.cursor) : 0
-      ),
+      cursor,
+      displayCursor: cursor,
       leaseRemainingMs: lockMeta.leaseRemainingMs,
       heartbeatAgeMs: lockMeta.heartbeatAgeMs,
       staleByHeartbeat: lockMeta.staleByHeartbeat,
