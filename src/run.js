@@ -14,7 +14,7 @@ const DATABASE_HEADERS = [
   'Gestor', 'Supervisor', 'Status', 'Obs', 'DataISO', 'Identificador'
 ];
 
-const JOB_STATE_RANGE = 'JOB_STATE!A1:M1';
+const JOB_STATE_RANGE = 'JOB_STATE!A1:N1';
 const JOB_STATE_LEGACY_CURSOR_RANGE = 'JOB_STATE!A1';
 
 // Heartbeat configuration (configurable via env)
@@ -29,7 +29,8 @@ function createDefaultJobState() {
     generation: 0,
     cursor: 0,
     leaseUntil: 0,
-    updatedAt: ''
+    updatedAt: '',
+    stage: 'idle'
   };
 }
 
@@ -69,7 +70,8 @@ function parseJobStateRow(values) {
         lastError: String(row[9] || '').trim(),
         lastAction: String(row[10] || '').trim(),
         takeoverBy: String(row[11] || '').trim(),
-        auditPointer: String(row[12] || '').trim()
+        auditPointer: String(row[12] || '').trim(),
+        stage: String(row[13] || row[10] || 'idle').trim() || 'idle'
       };
     }
 
@@ -79,7 +81,8 @@ function parseJobStateRow(values) {
       generation: Number.isFinite(generation) && generation >= 0 ? generation : 0,
       cursor: Number.isFinite(cursor) && cursor >= 0 ? cursor : 0,
       leaseUntil: Number.isFinite(leaseUntil) && leaseUntil >= 0 ? leaseUntil : 0,
-      updatedAt: String(row[5] || '').trim()
+      updatedAt: String(row[5] || '').trim(),
+      stage: 'idle'
     };
   }
 
@@ -88,7 +91,7 @@ function parseJobStateRow(values) {
 
 function serializeJobState(state) {
   const n = state || createDefaultJobState();
-  // produce 13 columns: A..M
+  // produce 14 columns: A..N
   return [[
     String(n.status || 'idle'),
     String(n.jobId || ''),
@@ -102,7 +105,8 @@ function serializeJobState(state) {
     String(n.lastError || ''),
     String(n.lastAction || ''),
     String(n.takeoverBy || ''),
-    String(n.auditPointer || '')
+    String(n.auditPointer || ''),
+    String(n.stage || 'idle')
   ]];
 }
 
@@ -243,24 +247,22 @@ async function acquireJobStateLock(sheets, spreadsheetId, options = {}) {
   const leaseMs = Math.max(60000, Number(options.leaseMs || process.env.JOB_LEASE_MS || 60 * 1000));
   const now = Date.now();
   const resetCursor = options.resetCursor === true;
-  
-  // Determine cursor: 
-  // - If explicitly requesting reset, use 0
-  // - If this is a new job (different jobId), use 0 (fresh start)
-  // - If continuing the same job, preserve current cursor
-  // - Otherwise default to 0
-  const isSameJob = String(current.jobId || '') === jobId;
-  const shouldPreserveCursor = !resetCursor && isSameJob;
+  const currentlyRunning = String(current.status || '') === 'running' && Number(current.leaseUntil || 0) > now;
+  const completedLastRun = String(current.lastAction || '') === 'finish' || String(current.stage || '') === 'done';
+  const shouldResetCursor = resetCursor || completedLastRun;
   const preservedCursor = Number.isFinite(Number(current.cursor)) && Number(current.cursor) >= 0
     ? Number(current.cursor)
     : 0;
+  const nextStage = shouldResetCursor
+    ? 'database'
+    : String(options.stage || current.stage || (currentlyRunning ? 'database' : 'database')).trim() || 'database';
   
   const owner = await getOwnerId();
   const state = {
     status: 'running',
     jobId,
     generation: nextGeneration,
-    cursor: shouldPreserveCursor ? preservedCursor : 0,
+    cursor: shouldResetCursor ? 0 : preservedCursor,
     leaseUntil: now + leaseMs,
     updatedAt: toIsoNow(),
     owner,
@@ -269,7 +271,8 @@ async function acquireJobStateLock(sheets, spreadsheetId, options = {}) {
     lastError: '',
     lastAction: 'acquire',
     takeoverBy: '',
-    auditPointer: 'JOB_HISTORY'
+    auditPointer: 'JOB_HISTORY',
+    stage: nextStage
   };
 
   // Re-read immediately before writing to reduce race window: if another
@@ -356,7 +359,8 @@ async function touchJobState(sheets, spreadsheetId, control, updates = {}) {
     lastError: updates.lastError || current.lastError || '',
     lastAction: updates.lastAction || 'touch',
     takeoverBy: current.takeoverBy || '',
-    auditPointer: current.auditPointer || 'JOB_HISTORY'
+    auditPointer: current.auditPointer || 'JOB_HISTORY',
+    stage: updates.stage || current.stage || 'running'
   };
 
   await writeJobState(sheets, spreadsheetId, newState);
@@ -394,7 +398,8 @@ async function finishJobState(sheets, spreadsheetId, control, status = 'idle') {
     lastError: '',
     lastAction: 'finish',
     takeoverBy: current.takeoverBy || '',
-    auditPointer: current.auditPointer || 'JOB_HISTORY'
+    auditPointer: current.auditPointer || 'JOB_HISTORY',
+    stage: 'done'
   };
 
   await writeJobState(sheets, spreadsheetId, newState);
@@ -432,7 +437,8 @@ async function releaseJobState(sheets, spreadsheetId, control, status = 'idle') 
     lastError: '',
     lastAction: 'release',
     takeoverBy: current.takeoverBy || '',
-    auditPointer: current.auditPointer || 'JOB_HISTORY'
+    auditPointer: current.auditPointer || 'JOB_HISTORY',
+    stage: String(current.stage || 'paused').trim() || 'paused'
   };
 
   await writeJobState(sheets, spreadsheetId, newState);
@@ -866,6 +872,10 @@ async function run(options = {}) {
   const batchClientes = clientes.slice(cursor, cursor + batchSize);
 
   if (cursor === 0) {
+    await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
+      stage: 'database',
+      lastAction: 'start_database'
+    });
     await batchUpdateValues(sheets, process.env.SPREADSHEET_ID, [
       {
         range: 'DATABASE!A1',
@@ -875,9 +885,9 @@ async function run(options = {}) {
   }
 
   if (!batchClientes.length) {
-    await writeJobCursor(sheets, process.env.SPREADSHEET_ID, 0);
-    console.log('Nenhum cliente pendente; cursor reiniciado.');
-    return { ok: true, processed: 0, total: totalClientes, cursor: 0, nextCursor: 0, finished: true };
+    await finishJobState(sheets, process.env.SPREADSHEET_ID, jobControl, 'idle');
+    console.log('Nenhum cliente pendente; cursor mantido para o próximo ciclo.');
+    return { ok: true, processed: 0, total: totalClientes, cursor, nextCursor: cursor, finished: true };
   }
 
   const batchRows = [];
@@ -915,7 +925,7 @@ async function run(options = {}) {
     if (((batchIndex + 1) % 2 === 0) || batchIndex === batchClientes.length - 1) {
       try {
         await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
-          cursor: index + 1,
+          stage: 'database',
           lastAction: 'progress'
         });
       } catch (e) {
@@ -944,11 +954,20 @@ async function run(options = {}) {
 
   if (!finished) {
     await writeJobCursor(sheets, process.env.SPREADSHEET_ID, nextCursor);
+    await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
+      stage: 'database',
+      cursor: nextCursor,
+      lastAction: 'database_progress'
+    });
     const batchTime = new Date().toISOString();
     console.log(`Lote concluído | processed=${batchRows.length} | nextCursor=${nextCursor}/${totalClientes} | time=${batchTime}`);
     return { ok: true, processed: batchRows.length, total: totalClientes, cursor, nextCursor, finished: false };
   }
 
+  await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
+    stage: 'database_complete',
+    lastAction: 'database_complete'
+  });
   await finishJobState(sheets, process.env.SPREADSHEET_ID, jobControl, 'idle');
 
   try {
@@ -974,7 +993,7 @@ async function run(options = {}) {
 
   try {
     try {
-      await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { lastAction: 'pre_generate_supervisor' });
+      await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { stage: 'supervisor', lastAction: 'pre_generate_supervisor' });
     } catch (e) { /* best-effort */ }
     await generateBlocosPorGestor(sheets, process.env.SPREADSHEET_ID);
     console.log('SUPERVISOR atualizado');
@@ -984,7 +1003,7 @@ async function run(options = {}) {
 
   try {
     try {
-      await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { lastAction: 'pre_generate_agg' });
+      await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { stage: 'aggregating', lastAction: 'pre_generate_agg' });
     } catch (e) { /* best-effort */ }
     await generateSupervisorAgg(sheets, process.env.SPREADSHEET_ID);
     console.log('AGG_SUPERVISOR atualizado');
@@ -994,6 +1013,7 @@ async function run(options = {}) {
 
   if (!skipDashboards) {
     try {
+      await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { stage: 'dashboards', lastAction: 'pre_dashboards' });
       const dashResult = await ensureDashboardsForAllGestores(sheets, process.env.SPREADSHEET_ID);
       if (dashResult.ok) {
         const criadas = dashResult.resultados.filter(r => r.status === 'criada').length;
@@ -1021,7 +1041,7 @@ async function run(options = {}) {
 
   console.log('DATABASE atualizada');
 
-  return { ok: true, processed: batchRows.length, total: totalClientes, cursor, nextCursor: 0, finished: true };
+  return { ok: true, processed: batchRows.length, total: totalClientes, cursor, nextCursor: cursor + batchRows.length, finished: true };
 }
 
 module.exports = {

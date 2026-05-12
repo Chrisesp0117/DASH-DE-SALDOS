@@ -67,6 +67,7 @@ module.exports = async (req, res) => {
       ok: true,
       running: lockMeta.running,
       lockState: lockMeta.lockState,
+      stage: String(state.stage || 'idle'),
       leaseRemainingMs: lockMeta.leaseRemainingMs,
       heartbeatAgeMs: lockMeta.heartbeatAgeMs,
       staleByHeartbeat: lockMeta.staleByHeartbeat,

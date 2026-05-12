@@ -203,8 +203,7 @@ async function runFullUpdateJob(options = {}) {
       result = await runUpdateJob({
         batchSize,
         enableStartStatus: iteration === 1,
-        jobControl,
-        cursor: iteration === 1 ? 0 : undefined
+        jobControl
       });
       console.log('[diagnostic] runUpdateJob result', { iteration, result });
     } catch (error) {
@@ -298,12 +297,16 @@ async function runFullUpdateJob(options = {}) {
     };
   }
 
+  try {
+    await touchJobState(sheets, spreadsheetId, jobControl, { stage: 'supervisor', lastAction: 'pre_supervisor' });
+  } catch (e) { /* best-effort */ }
+
   const supervisorResult = includeSupervisor
     ? await generateBlocosPorGestor(sheets, spreadsheetId)
     : null;
 
   try {
-    await touchJobState(sheets, spreadsheetId, jobControl, { lastAction: 'pre_dashboards' });
+    await touchJobState(sheets, spreadsheetId, jobControl, { stage: 'dashboards', lastAction: 'pre_dashboards' });
   } catch (e) { /* best-effort */ }
 
   const dashboardResult = await runDashboardJob({

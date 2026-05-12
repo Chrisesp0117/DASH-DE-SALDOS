@@ -52,7 +52,8 @@ module.exports = async (req, res) => {
       lastError: 'admin_cleared',
       lastAction: 'admin_clear',
       takeoverBy: '',
-      auditPointer: 'JOB_HISTORY'
+      auditPointer: 'JOB_HISTORY',
+      stage: 'idle'
     };
 
     await writeJobState(sheets, spreadsheetId, newState);
