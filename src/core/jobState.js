@@ -255,6 +255,15 @@ async function acquireJobStateLock(sheets, spreadsheetId, options = {}) {
   }
 
   await writeJobState(sheets, spreadsheetId, state);
+
+  const confirmed = await readJobState(sheets, spreadsheetId);
+  if (!isSameJobState(confirmed, state)) {
+    const err = new Error('Job lock sobrescrito por outro worker');
+    err.code = 'JOB_ALREADY_RUNNING';
+    err.state = confirmed;
+    throw err;
+  }
+
   await appendJobHistory(sheets, spreadsheetId, {
     timestamp: toIsoNow(),
     jobId: state.jobId,

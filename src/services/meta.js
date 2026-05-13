@@ -21,6 +21,20 @@ function classifyMetaError(errorInfo) {
   };
 }
 
+function parseMetaAmount(value, assumeMinorWhenInteger = false) {
+  if (value === null || value === undefined || value === '') return 0;
+  const raw = String(value).trim();
+  if (!raw) return 0;
+  const normalized = raw.replace(/\s/g, '').replace(',', '.');
+  const cleaned = normalized.replace(/[^\d.-]/g, '');
+  const n = Number(cleaned);
+  if (!Number.isFinite(n)) return 0;
+  if (assumeMinorWhenInteger && !/[.,]/.test(raw)) {
+    return n / 100;
+  }
+  return n;
+}
+
 async function getMetaData(accountId, token, context = {}) {
   const accessToken = token || process.env.META_TOKEN;
   const cliente = context.cliente || 'desconhecido';
@@ -68,24 +82,19 @@ async function getMetaData(accountId, token, context = {}) {
 
   const data = saldoRes.data;
 
-  const spendCap = data.spend_cap !== undefined && data.spend_cap !== null && data.spend_cap !== ''
-    ? parseFloat(data.spend_cap)
-    : 0;
-  const hasValidSpendCap = Number.isFinite(spendCap) && spendCap > 0;
+  const spendCapMajor = parseMetaAmount(data.spend_cap, true);
+  const amountSpentMajor = parseMetaAmount(data.amount_spent, false);
+  const hasValidSpendCap = Number.isFinite(spendCapMajor) && spendCapMajor > 0;
 
   let saldo = null;
   const identificador = hasValidSpendCap ? '' : '💳 CARTÃO';
   if (hasValidSpendCap) {
-    // O Meta já retorna o saldo disponível em spend_cap.
-    // amount_spent não deve ser subtraído aqui, pois isso duplica o desconto
-    // e faz a planilha mostrar um saldo menor do que o exibido no Gerenciador.
-    saldo = spendCap / 100;
+    saldo = Math.max(0, spendCapMajor - amountSpentMajor);
   }
 
-  // gastoOntem vem em centavos também
-  const gastoOntem = (parseFloat(spend7dRes.data?.data?.[0]?.spend || 0)) / 100;
+  const gastoOntem = parseMetaAmount(spend7dRes.data?.data?.[0]?.spend, false);
   const media = gastoOntem;
-  const dias = media > 0 ? saldo / media : 0;
+  const dias = media > 0 && saldo !== null ? saldo / media : 0;
 
   return {
     ok: true,

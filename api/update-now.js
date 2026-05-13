@@ -1,9 +1,3 @@
-/**
- * UPDATE-NOW endpoint:
- * GET /api/update-now?secret=<token>&batchSize=100
- * Dispara atualização no servidor e retorna página com auto-close.
- */
-
 require('dotenv').config({ path: '.env' });
 
 const { runFullUpdateJob } = require('../src/core/serverlessJobs');
@@ -43,101 +37,6 @@ function sendHtml(res, html, statusCode = 200) {
   return { statusCode, body: html };
 }
 
-function isQuotaExceededError(error) {
-  const msg = String((error && (error.message || error.code || error.status)) || '').toLowerCase();
-  return msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(error && error.status) === '429' || String(error && error.code) === '429';
-}
-
-async function isJobActiveNow() {
-  const sheets = await getSheets();
-  const state = await readJobState(sheets, process.env.SPREADSHEET_ID);
-  const lockMeta = getJobLockMeta(state);
-  return { running: lockMeta.running, state, lockMeta };
-}
-
-function isJsonRequest(req) {
-  const method = String(req && req.method || 'GET').toUpperCase();
-  if (method === 'POST') return true;
-  const accept = String(req && req.headers && (req.headers.accept || req.headers.Accept) || '').toLowerCase();
-  return accept.includes('application/json');
-}
-
-module.exports = async (req, res) => {
-  const secretFromQuery = req && req.query ? String(req.query.secret || '') : getQueryValue(req, 'secret');
-  const secretFromHeader = req && req.headers ? String(req.headers['x-cron-secret'] || '') : '';
-  const secret = secretFromQuery || secretFromHeader;
-  const expectedSecret = process.env.CRON_SECRET || '';
-
-  if (!expectedSecret || !secret || secret !== expectedSecret) {
-    return sendHtml(res, '<h1>401 - Unauthorized</h1>', 401);
-  }
-
-  const batchSizeParam = req && req.query ? req.query.batchSize : getQueryValue(req, 'batchSize');
-  const batchSize = Math.max(10, Number(batchSizeParam || process.env.UPDATE_BATCH_SIZE || 50));
-  const forceParam = req && req.query ? req.query.force : getQueryValue(req, 'force');
-  const force = String(forceParam || '').toLowerCase() === 'true' || String(forceParam || '') === '1';
-
-  const resetRaw = req && req.query ? req.query.reset : getQueryValue(req && req.url, 'reset');
-  const resetCursor = String(resetRaw || '').toLowerCase() === 'true' || String(resetRaw || '') === '1';
-
-  const dbOnlyRaw = req && req.query ? req.query.databaseOnly : getQueryValue(req && req.url, 'databaseOnly');
-  const databaseOnly = String(dbOnlyRaw || '').toLowerCase() === 'true' || String(dbOnlyRaw || '') === '1';
-
-  const method = String(req && req.method || 'GET').toUpperCase();
-
-  if (method === 'POST' || isJsonRequest(req)) {
-    try {
-      const active = await isJobActiveNow();
-      if (active.running) {
-        return sendJsonResponse(res, {
-          ok: false,
-          running: true,
-          lockState: active.lockMeta && active.lockMeta.staleByHeartbeat ? 'active_stale' : 'active',
-          heartbeatAgeMs: active.lockMeta ? active.lockMeta.heartbeatAgeMs : null,
-          leaseRemainingMs: active.lockMeta ? active.lockMeta.leaseRemainingMs : 0,
-          staleByHeartbeat: active.lockMeta ? active.lockMeta.staleByHeartbeat : false,
-          state: active.state
-        }, 409);
-      }
-
-      // Inicia o job em background (não aguarda conclusão)
-      // Isso permite que o cliente veja progresso em tempo real via polling
-      const jobPromise = runFullUpdateJob({
-        batchSize,
-        maxMs: Math.max(60000, Number(process.env.CRON_MAX_RUNTIME_MS || 120000)),
-        rejectIfRunning: true,
-        force,
-        resetCursor,
-        includeSupervisor: !databaseOnly,
-        includeDashboards: !databaseOnly
-      }).catch(err => {
-        console.error('Background job error:', err && err.message);
-      });
-
-      // Retorna imediatamente ao cliente sem aguardar
-      return sendJsonResponse(res, {
-        ok: true,
-        started: true,
-        message: 'Atualização iniciada. Acompanhe o progresso em tempo real.',
-        refreshInterval: 2000
-      }, 202);
-
-    } catch (error) {
-      const payload = {
-        ok: false,
-        error: isQuotaExceededError(error)
-          ? 'Google Sheets com limite de leitura por minuto. Aguarde ~1 minuto e tente novamente.'
-          : `Erro ao atualizar: ${error && error.message ? error.message : 'desconhecido'}`
-      };
-      return sendJsonResponse(res, payload, 500);
-    }
-  }
-
-  const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Atualização de Saldos</title><meta name="color-scheme" content="light"><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui,sans-serif;background:#f5f7fa;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}.container{background:#fff;border-radius:16px;box-shadow:0 4px 30px rgba(0,0,0,.08);padding:40px;text-align:center;max-width:600px;width:100%}.header{margin-bottom:40px}.icon{font-size:56px;margin-bottom:16px;display:inline-block;animation:pulse 2.5s ease-in-out infinite}@keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.05);opacity:.8}}h1{color:#1a2332;font-size:28px;font-weight:700;margin-bottom:6px}.subtitle{color:#7c8999;font-size:13px;font-weight:500;text-transform:uppercase;letter-spacing:.5px}.status-section{background:linear-gradient(135deg,#f8fafc,#eef2f7);border-radius:12px;padding:24px;margin-bottom:24px;border:1px solid #e1e8f0;text-align:left}.status-indicator{width:12px;height:12px;border-radius:50%;background:#10b981}.status-indicator.running{background:#fbbf24;animation:blink 1s ease-in-out infinite}@keyframes blink{0%,100%{opacity:1}50%{opacity:.5}}.progress-bar{width:100%;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden;margin:16px 0}.progress-fill{height:100%;background:linear-gradient(90deg,#3b82f6,#10b981);width:0%;transition:width .3s ease-out}.status-text{color:#1a2332;font-size:14px;font-weight:600;margin-bottom:8px}.message-box{padding:16px;border-radius:8px;margin-bottom:16px;font-size:13px;animation:slideIn .3s ease-out}.message-box.show{animation:slideIn .3s ease-out}.message-box.info{background:#dbeafe;color:#1e40af;border:1px solid #93c5fd}.message-box.success{background:#dcfce7;color:#166534;border:1px solid #86efac}.message-box.error{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}@keyframes slideIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}.history-list{max-height:200px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:8px;text-align:left}.history-item{padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:12px;color:#7c8999}.history-item:last-child{border-bottom:none}.button-group{display:flex;gap:12px;justify-content:center;margin-top:24px}.btn{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:all .2s ease}.btn-primary{background:#3b82f6;color:#fff}.btn-primary:hover{background:#2563eb}.btn-primary:disabled{background:#9ca3af;cursor:not-allowed}.checkbox-group{display:flex;align-items:center;gap:8px;margin-bottom:20px}.checkbox-group input{cursor:pointer}.checkbox-group label{cursor:pointer;font-size:13px;color:#7c8999}</style></head><body><div class="container"><div class="header"><div class="icon" id="statusIcon">⏳</div><h1>Atualização de Saldos</h1><p class="subtitle">Monitorando progresso em tempo real</p></div><div class="status-section"><div class="status-text" id="statusLabel">Aguardando...</div><div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div><div class="status-detail" id="statusDetail"></div></div><div class="message-box" id="messageBox"></div><div class="checkbox-group"><input id="forceCheck" type="checkbox"><label for="forceCheck">Forçar atualização (ignorar lock)</label></div><div class="button-group"><button id="startBtn" class="btn btn-primary">Iniciar Atualização</button><button id="refreshBtn" class="btn btn-primary">Atualizar Status</button></div><div class="history-list" id="historyList"></div></div><script defer>(async()=>{const secret="${secret}";const statusUrl='/api/update-status?secret='+encodeURIComponent(secret);const startUrlBase='/api/update-now?secret='+encodeURIComponent(secret)+'&batchSize=50';let manualRunActive=false;const statusLabel=document.getElementById('statusLabel');const statusIcon=document.getElementById('statusIcon');const progressFill=document.getElementById('progressFill');const messageBox=document.getElementById('messageBox');const startBtn=document.getElementById('startBtn');const refreshBtn=document.getElementById('refreshBtn');const forceCheck=document.getElementById('forceCheck');const historyList=document.getElementById('historyList');let executionHistory=[];function addToHistory(type,title,msg){executionHistory.push({type,title,msg,time:new Date().toLocaleTimeString()});const item=document.createElement('div');item.className='history-item';item.textContent=\`[\${executionHistory.length}] \${title}\`;historyList.insertBefore(item,historyList.firstChild);if(historyList.children.length>20){historyList.removeChild(historyList.lastChild)}}function showMessage(msg,type='info'){messageBox.innerHTML=msg;messageBox.className='message-box show '+type;setTimeout(()=>{messageBox.classList.remove('show')},5000)}function getStatusDescription(json,state){const running=state.status==='running';const cursor=Number(state.cursor||0);const totalClients=Number(json.totalClients||state.totalClients||0);const pct=totalClients>0?Math.round((cursor/totalClients)*100):0;const indicator=running?'running':cursor>=totalClients&&totalClients>0?'idle':'stale';return{running,cursor,totalClients,pct,indicator}}async function refresh(){try{const res=await fetch(statusUrl);const json=await res.json().catch(()=>({}));const desc=getStatusDescription(json,json.state||{});const cursor=desc.cursor;const total=desc.totalClients;statusLabel.textContent=cursor+'/'+total+' ('+desc.pct+'%)';progressFill.style.width=desc.pct+'%';if(desc.indicator==='running'){statusIcon.textContent='⏳'}else if(desc.pct===100&&total>0){statusIcon.textContent='✅'}else{statusIcon.textContent='⏸️'}statusDetail.textContent=json.state?.stage||'database';if(manualRunActive&&desc.indicator!=='running'){if(cursor>=total&&total>0){addToHistory('success','Completo','Todos atualizados');manualRunActive=false;showMessage('✅ Conclusão!','success')}else if(total>0){addToHistory('info','Continuando','Próximo lote...');setTimeout(()=>start({internalRetry:true}),300)}}}catch(e){console.error('Erro ao atualizar:',e.message)}}async function start(opts={}){if(!secret){showMessage('❌ Token inválido','error');return}manualRunActive=true;startBtn.disabled=true;messageBox.classList.remove('show');try{const url=startUrlBase+(forceCheck?.checked?'&force=true':'');const res=await fetch(url,{method:'POST'});const json=await res.json().catch(()=>({}));if(res.status===202){const msg=opts.internalRetry?'⏳ Continuando...':'⏳ Iniciado...';addToHistory('info','Iniciado','Background');showMessage(msg,'info');setTimeout(refresh,500)}else{addToHistory('error','Erro','Bloqueado');showMessage('⚠️ Erro ou bloqueado','error');manualRunActive=false}}catch(e){console.error('Erro:',e);manualRunActive=false}finally{startBtn.disabled=false}}startBtn.addEventListener('click',()=>start());refreshBtn.addEventListener('click',refresh);setInterval(refresh,2000);refresh()})();</script></body></html>`;
-
-  return sendHtml(res, html, 200);
-};
-
 function sendJsonResponse(res, payload, statusCode = 200) {
   if (res && typeof res.status === 'function' && typeof res.json === 'function') {
     return res.status(statusCode).json(payload);
@@ -159,3 +58,317 @@ function sendJsonResponse(res, payload, statusCode = 200) {
 
   return { statusCode, body: JSON.stringify(payload) };
 }
+
+function isQuotaExceededError(error) {
+  const msg = String((error && (error.message || error.code || error.status)) || '').toLowerCase();
+  return msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(error && error.status) === '429' || String(error && error.code) === '429';
+}
+
+async function isJobActiveNow() {
+  const sheets = await getSheets();
+  const state = await readJobState(sheets, process.env.SPREADSHEET_ID);
+  const lockMeta = getJobLockMeta(state);
+  return { running: lockMeta.running, state, lockMeta };
+}
+
+function isJsonRequest(req) {
+  const method = String(req && req.method || 'GET').toUpperCase();
+  if (method === 'POST') return true;
+  const accept = String(req && req.headers && (req.headers.accept || req.headers.Accept) || '').toLowerCase();
+  return accept.includes('application/json');
+}
+
+function renderHtmlPage(params) {
+  const initialStateJson = JSON.stringify(params.initialState || { running: false, cursor: 0, totalClients: 0, stage: 'idle' });
+  const secret = String(params.secret || '');
+  const batchSize = Number(params.batchSize || 50);
+  const force = params.force ? '1' : '0';
+  const reset = params.resetCursor ? '1' : '0';
+  const databaseOnly = params.databaseOnly ? '1' : '0';
+
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Atualização de Saldos</title>
+  <style>
+    :root{--bg:#f4f7fb;--card:#fff;--ink:#162236;--muted:#61708a;--line:#e5ebf3;--primary:#2563eb;--success:#16a34a;--warn:#d97706;--error:#dc2626}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+    .wrap{max-width:760px;margin:24px auto;padding:0 14px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 8px 24px rgba(15,23,42,.06);padding:18px}
+    .head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+    h1{font-size:20px;line-height:1.2;margin:0}
+    .pill{font-size:12px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:#f8fbff}
+    .pill.running{color:#7c2d12;background:#fffbeb;border-color:#fed7aa}
+    .pill.idle{color:#065f46;background:#ecfdf5;border-color:#bbf7d0}
+    .meta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:12px}
+    .kpi{border:1px solid var(--line);border-radius:10px;padding:10px;background:#fcfdff}
+    .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+    .v{font-size:18px;font-weight:700;margin-top:2px}
+    .bar{height:10px;background:#edf2f8;border-radius:999px;overflow:hidden;border:1px solid #e2e8f0}
+    .fill{height:100%;width:0;background:linear-gradient(90deg,#2563eb,#10b981);transition:width .25s ease}
+    .msg{margin-top:10px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);font-size:13px;color:#334155;background:#f8fafc;min-height:38px}
+    .msg.error{color:#991b1b;background:#fef2f2;border-color:#fecaca}
+    .msg.warn{color:#92400e;background:#fffbeb;border-color:#fed7aa}
+    .msg.ok{color:#065f46;background:#ecfdf5;border-color:#bbf7d0}
+    .actions{display:flex;gap:10px;margin-top:14px}
+    button{border:0;border-radius:10px;padding:10px 14px;background:var(--primary);color:#fff;font-weight:600;cursor:pointer}
+    button[disabled]{opacity:.55;cursor:not-allowed}
+    .ghost{background:#0f172a0d;color:#1e293b}
+    .foot{margin-top:10px;font-size:12px;color:var(--muted)}
+    @media (max-width:640px){.meta{grid-template-columns:1fr 1fr}.wrap{margin:14px auto}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="head">
+        <h1>Atualização de Saldos</h1>
+        <span id="statusPill" class="pill idle">Sem atualização ativa</span>
+      </div>
+
+      <div class="meta">
+        <div class="kpi"><div class="k">Progresso</div><div id="progressText" class="v">0%</div></div>
+        <div class="kpi"><div class="k">Cursor</div><div id="cursorText" class="v">0/0</div></div>
+        <div class="kpi"><div class="k">Etapa</div><div id="stageText" class="v">idle</div></div>
+      </div>
+
+      <div class="bar"><div id="progressFill" class="fill"></div></div>
+      <div id="messageBox" class="msg">Pronto para iniciar.</div>
+
+      <div class="actions">
+        <button id="startBtn" type="button">Iniciar atualização</button>
+        <button id="refreshBtn" class="ghost" type="button">Atualizar status</button>
+      </div>
+
+      <div class="foot">Página multiusuário: detecta execução ativa e bloqueia novos disparos automaticamente.</div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const initialState = ${initialStateJson};
+      const secret = ${JSON.stringify(secret)};
+      const batchSize = ${JSON.stringify(String(batchSize))};
+      const force = ${JSON.stringify(force)};
+      const reset = ${JSON.stringify(reset)};
+      const databaseOnly = ${JSON.stringify(databaseOnly)};
+
+      const startBtn = document.getElementById('startBtn');
+      const refreshBtn = document.getElementById('refreshBtn');
+      const statusPill = document.getElementById('statusPill');
+      const messageBox = document.getElementById('messageBox');
+      const progressFill = document.getElementById('progressFill');
+      const progressText = document.getElementById('progressText');
+      const cursorText = document.getElementById('cursorText');
+      const stageText = document.getElementById('stageText');
+
+      let lockUi = false;
+
+      function setMessage(text, type) {
+        messageBox.textContent = text;
+        messageBox.className = 'msg' + (type ? ' ' + type : '');
+      }
+
+      function applyState(payload) {
+        const running = !!payload.running;
+        const total = Number(payload.totalClients || (payload.state && payload.state.totalClients) || 0);
+        const cursor = Number(payload.displayCursor || payload.cursor || 0);
+        const stage = String(payload.stage || (payload.state && payload.state.stage) || 'idle');
+        const pct = total > 0 ? Math.min(100, Math.max(0, Math.round((cursor / total) * 100))) : 0;
+
+        progressFill.style.width = pct + '%';
+        progressText.textContent = pct + '%';
+        cursorText.textContent = cursor + '/' + total;
+        stageText.textContent = stage;
+
+        if (running) {
+          statusPill.textContent = 'Atualização em andamento';
+          statusPill.className = 'pill running';
+          if (!lockUi) setMessage('Outro usuário/processo já está atualizando. Ação bloqueada.', 'warn');
+        } else {
+          statusPill.textContent = 'Sem atualização ativa';
+          statusPill.className = 'pill idle';
+        }
+
+        startBtn.disabled = running || lockUi;
+      }
+
+      async function fetchStatus() {
+        try {
+          const res = await fetch('/api/update-status', {
+            method: 'GET',
+            headers: {
+              accept: 'application/json',
+              'x-cron-secret': secret
+            },
+            cache: 'no-store'
+          });
+          const data = await res.json();
+          if (!data || data.ok === false) {
+            setMessage((data && data.error) ? data.error : 'Falha ao ler status.', 'error');
+            return null;
+          }
+          applyState(data);
+          if (!data.running && !lockUi) {
+            setMessage('Pronto para iniciar.', 'ok');
+          }
+          return data;
+        } catch (e) {
+          setMessage('Erro ao consultar status: ' + (e && e.message ? e.message : e), 'error');
+          return null;
+        }
+      }
+
+      async function startUpdate() {
+        lockUi = true;
+        startBtn.disabled = true;
+        setMessage('Iniciando atualização...', 'warn');
+
+        try {
+          const statusData = await fetchStatus();
+          if (statusData && statusData.running) {
+            setMessage('Já existe atualização em andamento. Aguarde concluir.', 'warn');
+            lockUi = false;
+            return;
+          }
+
+          const query = new URLSearchParams({
+            batchSize,
+            force,
+            reset,
+            databaseOnly
+          }).toString();
+
+          const res = await fetch('/api/update-now?' + query, {
+            method: 'POST',
+            headers: {
+              accept: 'application/json',
+              'x-cron-secret': secret
+            },
+            cache: 'no-store'
+          });
+
+          const data = await res.json();
+          if (res.status === 409 || (data && data.running)) {
+            setMessage('Já existe atualização em andamento. Aguarde concluir.', 'warn');
+            await fetchStatus();
+            return;
+          }
+
+          if (!res.ok || !data || data.ok === false) {
+            setMessage((data && data.error) ? data.error : 'Falha ao iniciar atualização.', 'error');
+            return;
+          }
+
+          setMessage(data.message || 'Atualização iniciada com sucesso.', 'ok');
+          await fetchStatus();
+        } catch (e) {
+          setMessage('Erro ao iniciar atualização: ' + (e && e.message ? e.message : e), 'error');
+        } finally {
+          lockUi = false;
+          await fetchStatus();
+        }
+      }
+
+      startBtn.addEventListener('click', startUpdate);
+      refreshBtn.addEventListener('click', fetchStatus);
+
+      applyState(initialState);
+      fetchStatus();
+      setInterval(fetchStatus, 2000);
+    })();
+  </script>
+</body>
+</html>`;
+}
+
+module.exports = async (req, res) => {
+  const secretFromQuery = req && req.query ? String(req.query.secret || '') : getQueryValue(req, 'secret');
+  const secretFromHeader = req && req.headers ? String(req.headers['x-cron-secret'] || '') : '';
+  const secret = secretFromQuery || secretFromHeader;
+  const expectedSecret = process.env.CRON_SECRET || '';
+
+  if (!expectedSecret || !secret || secret !== expectedSecret) {
+    return sendHtml(res, '<h1>401 - Unauthorized</h1>', 401);
+  }
+
+  const batchSizeParam = req && req.query ? req.query.batchSize : getQueryValue(req, 'batchSize');
+  const batchSize = Math.max(10, Number(batchSizeParam || process.env.UPDATE_BATCH_SIZE || 50));
+  const forceParam = req && req.query ? req.query.force : getQueryValue(req, 'force');
+  const force = String(forceParam || '').toLowerCase() === 'true' || String(forceParam || '') === '1';
+
+  const resetRaw = req && req.query ? req.query.reset : getQueryValue(req, 'reset');
+  const resetCursor = String(resetRaw || '').toLowerCase() === 'true' || String(resetRaw || '') === '1';
+
+  const dbOnlyRaw = req && req.query ? req.query.databaseOnly : getQueryValue(req, 'databaseOnly');
+  const databaseOnly = String(dbOnlyRaw || '').toLowerCase() === 'true' || String(dbOnlyRaw || '') === '1';
+
+  const method = String(req && req.method || 'GET').toUpperCase();
+
+  if (method === 'POST' || isJsonRequest(req)) {
+    try {
+      const active = await isJobActiveNow();
+      if (active.running) {
+        return sendJsonResponse(res, {
+          ok: false,
+          running: true,
+          lockState: active.lockMeta && active.lockMeta.staleByHeartbeat ? 'active_stale' : 'active',
+          heartbeatAgeMs: active.lockMeta ? active.lockMeta.heartbeatAgeMs : null,
+          leaseRemainingMs: active.lockMeta ? active.lockMeta.leaseRemainingMs : 0,
+          staleByHeartbeat: active.lockMeta ? active.lockMeta.staleByHeartbeat : false,
+          state: active.state
+        }, 409);
+      }
+
+      runFullUpdateJob({
+        batchSize,
+        maxMs: Math.max(60000, Number(process.env.CRON_MAX_RUNTIME_MS || 120000)),
+        rejectIfRunning: true,
+        force,
+        resetCursor,
+        includeSupervisor: !databaseOnly,
+        includeDashboards: !databaseOnly
+      }).catch(err => {
+        console.error('Background job error:', err && err.message);
+      });
+
+      return sendJsonResponse(res, {
+        ok: true,
+        started: true,
+        message: 'Atualização iniciada. Acompanhe o progresso em tempo real.',
+        refreshInterval: 2000
+      }, 202);
+    } catch (error) {
+      const payload = {
+        ok: false,
+        error: isQuotaExceededError(error)
+          ? 'Google Sheets com limite de leitura por minuto. Aguarde ~1 minuto e tente novamente.'
+          : `Erro ao atualizar: ${error && error.message ? error.message : 'desconhecido'}`
+      };
+      return sendJsonResponse(res, payload, 500);
+    }
+  }
+
+  try {
+    const active = await isJobActiveNow();
+    const html = renderHtmlPage({
+      secret,
+      batchSize,
+      force,
+      resetCursor,
+      databaseOnly,
+      initialState: {
+        running: active.running,
+        stage: active && active.state ? active.state.stage : 'idle',
+        cursor: active && active.state ? active.state.progressCursor || active.state.cursor || 0 : 0,
+        totalClients: active && active.state ? active.state.totalClients || 0 : 0
+      }
+    });
+    return sendHtml(res, html, 200);
+  } catch (error) {
+    return sendHtml(res, `<h1>500 - Erro</h1><p>${error && error.message ? error.message : 'Erro ao carregar página'}</p>`, 500);
+  }
+};

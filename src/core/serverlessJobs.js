@@ -108,6 +108,7 @@ function assertCronAuth(req, res) {
 async function runUpdateJob(options = {}) {
   return run({
     skipDashboards: true,
+    includeSupervisorAgg: options.includeSupervisorAgg !== false,
     ...options
   });
 }
@@ -115,6 +116,7 @@ async function runUpdateJob(options = {}) {
 async function runFullUpdateJob(options = {}) {
   const batchSize = Math.max(1, Number(options.batchSize || process.env.UPDATE_BATCH_SIZE || 50));
   const includeDashboards = options.includeDashboards !== false;
+  const includeSupervisor = options.includeSupervisor !== false;
   const rejectIfRunning = options.rejectIfRunning !== false;
   const force = options.force === true;
   const resetCursor = options.resetCursor === true;
@@ -162,6 +164,7 @@ async function runFullUpdateJob(options = {}) {
   try {
     result = await runUpdateJob({
       batchSize,
+      includeSupervisorAgg: includeSupervisor,
       jobControl
     });
   } catch (error) {
@@ -222,15 +225,19 @@ async function runFullUpdateJob(options = {}) {
     };
   }
 
-  try {
-    await touchJobState(sheets, spreadsheetId, jobControl, { stage: 'supervisor', lastAction: 'pre_supervisor' });
-  } catch (e) { /* best-effort */ }
+  let supervisorResult = null;
 
-  const supervisorResult = await generateBlocosPorGestor(sheets, spreadsheetId);
+  if (includeSupervisor) {
+    try {
+      await touchJobState(sheets, spreadsheetId, jobControl, { stage: 'supervisor', lastAction: 'pre_supervisor' });
+    } catch (e) { }
+
+    supervisorResult = await generateBlocosPorGestor(sheets, spreadsheetId);
+  }
 
   try {
     await touchJobState(sheets, spreadsheetId, jobControl, { stage: 'dashboards', lastAction: 'pre_dashboards' });
-  } catch (e) { /* best-effort */ }
+  } catch (e) { }
 
   const dashboardResult = await runDashboardJob({
     includeSupervisor: false,
@@ -247,8 +254,8 @@ async function runFullUpdateJob(options = {}) {
         ok: true,
         finished: false,
         reason: 'restarted_by_newer_job',
-        iterations: iteration,
-        totalProcessed,
+        iterations: 1,
+        totalProcessed: Number(result && result.processed || 0),
         batchSize
       };
     }
@@ -259,8 +266,8 @@ async function runFullUpdateJob(options = {}) {
       ok: false,
       finished: true,
       reason: 'dashboard_failed',
-      iterations: iteration,
-      totalProcessed,
+      iterations: 1,
+      totalProcessed: Number(result && result.processed || 0),
       batchSize,
       dashboardResult
     };
