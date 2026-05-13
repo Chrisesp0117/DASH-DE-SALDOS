@@ -144,7 +144,8 @@ async function runFullUpdateJob(options = {}) {
   try {
     jobControl = await acquireJobStateLock(sheets, spreadsheetId, {
       leaseMs: 60000,
-      resetCursor
+      resetCursor,
+      owner: options.owner
     });
     console.log('[diagnostic] acquired job lock', { jobId: jobControl.jobId, generation: jobControl.generation, leaseUntil: jobControl.leaseUntil });
   } catch (e) {

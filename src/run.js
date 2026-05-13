@@ -548,30 +548,28 @@ async function run(options = {}) {
     }
   ]);
 
-  await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { totalClients: totalClientes, cursor: cursor + batchRows.length });
-  console.log('[diagnostic] touched job state', { jobId: jobControl.jobId, generation: jobControl.generation, nextCursor: cursor + batchRows.length });
-
   const nextCursor = cursor + batchRows.length;
   const finished = nextCursor >= totalClientes;
 
-  if (!finished) {
-    // Cursor already persisted via touchJobState above; no need to writeJobCursor separately
+  try {
     await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
-      stage: 'database',
+      stage: finished ? 'database_complete' : 'database',
       cursor: nextCursor,
       totalClients: totalClientes,
-      lastAction: 'database_progress'
+      lastAction: finished ? 'database_complete' : 'database_progress'
     });
+    console.log('[diagnostic] touched job state', { jobId: jobControl.jobId, generation: jobControl.generation, nextCursor });
+  } catch (e) {
+    if (e && e.code === 'JOB_INTERRUPTED') throw e;
+    console.warn('[run] touchJobState after batch failed (non-fatal):', e && e.message);
+  }
+
+  if (!finished) {
     const batchTime = new Date().toISOString();
     console.log(`Lote concluído | processed=${batchRows.length} | nextCursor=${nextCursor}/${totalClientes} | time=${batchTime}`);
     return { ok: true, processed: batchRows.length, total: totalClientes, cursor, nextCursor, finished: false };
   }
 
-  await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
-    stage: 'database_complete',
-    totalClients: totalClientes,
-    lastAction: 'database_complete'
-  });
   if (!options.jobControl) {
     await finishJobState(sheets, process.env.SPREADSHEET_ID, jobControl, 'idle');
   }

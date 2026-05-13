@@ -137,21 +137,38 @@ async function getOwnerId() {
   }
 }
 
+async function heartbeatJobState(sheets, spreadsheetId, jobControl, leaseMs = 60000) {
+  if (!jobControl) return;
+  const current = await readJobState(sheets, spreadsheetId);
+  if (!isSameJobState(current, jobControl)) {
+    return false;
+  }
+  const now = toIsoNow();
+  const nextLease = String(Date.now() + leaseMs);
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      valueInputOption: 'RAW',
+      data: [
+        { range: 'JOB_STATE!E1', values: [[nextLease]] },
+        { range: 'JOB_STATE!F1', values: [[now]] },
+        { range: 'JOB_STATE!H1', values: [[now]] }
+      ]
+    }
+  });
+  return true;
+}
+
 async function startHeartbeatTimer(sheets, spreadsheetId, jobControl, intervalMs = DEFAULT_HEARTBEAT_INTERVAL_MS) {
   if (!jobControl) return null;
 
   const heartbeatTimer = setInterval(async () => {
     try {
-      const current = await readJobState(sheets, spreadsheetId);
-      if (!isSameJobState(current, jobControl)) {
+      const still = await heartbeatJobState(sheets, spreadsheetId, jobControl, 60000);
+      if (still === false) {
         clearInterval(heartbeatTimer);
         return;
       }
-
-      await touchJobState(sheets, spreadsheetId, jobControl, {
-        lastAction: 'heartbeat',
-        leaseMs: 60000
-      });
       console.log(`[heartbeat] lease refreshed for jobId=${jobControl.jobId}`);
     } catch (e) {
       console.warn(`[heartbeat] error: ${e && e.message ? e.message : e}`);
@@ -223,7 +240,8 @@ async function acquireJobStateLock(sheets, spreadsheetId, options = {}) {
     ? Number(current.cursor)
     : 0;
 
-  const owner = await getOwnerId();
+  const requestedOwner = String(options.owner || '').trim();
+  const owner = requestedOwner ? requestedOwner.slice(0, 120) : await getOwnerId();
   const state = {
     status: 'running',
     jobId,
@@ -454,6 +472,7 @@ module.exports = {
   writeJobState,
   getOwnerId,
   startHeartbeatTimer,
+  heartbeatJobState,
   appendJobHistory,
   acquireJobStateLock,
   isSameJobState,

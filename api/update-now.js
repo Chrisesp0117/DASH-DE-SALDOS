@@ -166,6 +166,8 @@ function renderHtmlPage(params) {
       const stageText = document.getElementById('stageText');
 
       let lockUi = false;
+      const ownerId = 'ui|' + Math.random().toString(36).slice(2, 10) + '|' + Date.now().toString(36);
+      let lastStartedByMe = false;
 
       function setMessage(text, type) {
         messageBox.textContent = text;
@@ -177,6 +179,8 @@ function renderHtmlPage(params) {
         const total = Number(payload.totalClients || (payload.state && payload.state.totalClients) || 0);
         const cursor = Number(payload.displayCursor || payload.cursor || 0);
         const stage = String(payload.stage || (payload.state && payload.state.stage) || 'idle');
+        const owner = String((payload.state && payload.state.owner) || '');
+        const isMine = owner && owner === ownerId;
         const pct = total > 0 ? Math.min(100, Math.max(0, Math.round((cursor / total) * 100))) : 0;
 
         progressFill.style.width = pct + '%';
@@ -187,10 +191,17 @@ function renderHtmlPage(params) {
         if (running) {
           statusPill.textContent = 'Atualização em andamento';
           statusPill.className = 'pill running';
-          if (!lockUi) setMessage('Outro usuário/processo já está atualizando. Ação bloqueada.', 'warn');
+          if (!lockUi) {
+            if (isMine || lastStartedByMe) {
+              setMessage('Atualização em andamento (iniciada por você).', 'warn');
+            } else {
+              setMessage('Atualização em andamento por outro usuário/processo. Ação bloqueada.', 'warn');
+            }
+          }
         } else {
           statusPill.textContent = 'Sem atualização ativa';
           statusPill.className = 'pill idle';
+          lastStartedByMe = false;
         }
 
         startBtn.disabled = running || lockUi;
@@ -239,7 +250,8 @@ function renderHtmlPage(params) {
             batchSize,
             force,
             reset,
-            databaseOnly
+            databaseOnly,
+            owner: ownerId
           }).toString();
 
           const res = await fetch('/api/update-now?' + query, {
@@ -253,7 +265,7 @@ function renderHtmlPage(params) {
 
           const data = await res.json();
           if (res.status === 409 || (data && data.running)) {
-            setMessage('Já existe atualização em andamento. Aguarde concluir.', 'warn');
+            setMessage('Já existe atualização em andamento por outro usuário/processo. Aguarde concluir.', 'warn');
             await fetchStatus();
             return;
           }
@@ -263,6 +275,7 @@ function renderHtmlPage(params) {
             return;
           }
 
+          lastStartedByMe = true;
           setMessage(data.message || 'Atualização iniciada com sucesso.', 'ok');
           await fetchStatus();
         } catch (e) {
@@ -305,6 +318,8 @@ module.exports = async (req, res) => {
 
   const dbOnlyRaw = req && req.query ? req.query.databaseOnly : getQueryValue(req, 'databaseOnly');
   const databaseOnly = String(dbOnlyRaw || '').toLowerCase() === 'true' || String(dbOnlyRaw || '') === '1';
+  const ownerParam = req && req.query ? req.query.owner : getQueryValue(req, 'owner');
+  const owner = String(ownerParam || '').trim().slice(0, 120);
 
   const method = String(req && req.method || 'GET').toUpperCase();
 
@@ -329,6 +344,7 @@ module.exports = async (req, res) => {
         rejectIfRunning: true,
         force,
         resetCursor,
+        owner,
         includeSupervisor: !databaseOnly,
         includeDashboards: !databaseOnly
       }).catch(err => {
