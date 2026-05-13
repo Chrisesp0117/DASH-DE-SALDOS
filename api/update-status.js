@@ -22,7 +22,12 @@ module.exports = async (req, res) => {
 
     const progressCursor = Number.isFinite(Number(state.progressCursor)) ? Number(state.progressCursor) : 0;
     const storedCursor = Number.isFinite(Number(state.cursor)) ? Number(state.cursor) : 0;
-    const cursor = lockMeta.running ? progressCursor : storedCursor;
+    // Priorizar progressCursor (atualizações em tempo real) sobre cursor final
+    // Exceto quando totalClients=0 ou ambos são 0 (job não iniciado)
+    let cursor = storedCursor;
+    if ((progressCursor > 0 || storedCursor === 0) && totalClients > 0) {
+      cursor = Math.max(progressCursor, 0);
+    }
 
     return sendJson(res, {
       ok: true,
