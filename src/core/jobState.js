@@ -243,8 +243,8 @@ async function acquireJobStateLock(sheets, spreadsheetId, options = {}) {
 
   try {
     const fresh = await readJobState(sheets, spreadsheetId);
-    const running = String(fresh.status || '') === 'running' && Number(fresh.leaseUntil || 0) > Date.now();
-    if (running && !options.force) {
+    const lockMeta = getJobLockMeta(fresh);
+    if (lockMeta.running && !options.force) {
       const err = new Error('Job already running by another worker');
       err.code = 'JOB_ALREADY_RUNNING';
       err.state = fresh;
@@ -420,11 +420,15 @@ async function releaseJobState(sheets, spreadsheetId, control, status = 'idle') 
 function getJobLockMeta(state) {
   const now = Date.now();
   const leaseUntil = Number(state && state.leaseUntil || 0);
-  const heartbeatAt = state && state.heartbeatAt ? Date.parse(state.heartbeatAt) : 0;
-  const heartbeatAgeMs = heartbeatAt > 0 ? Math.max(0, now - heartbeatAt) : null;
-  const staleByHeartbeat = heartbeatAgeMs !== null && heartbeatAgeMs > HEARTBEAT_STALE_THRESHOLD_MS;
+  const heartbeatAtRaw = state && state.heartbeatAt ? String(state.heartbeatAt).trim() : '';
+  const heartbeatAt = heartbeatAtRaw ? Date.parse(heartbeatAtRaw) : 0;
+  const hasValidHeartbeat = Number.isFinite(heartbeatAt) && heartbeatAt > 0;
+  const heartbeatAgeMs = hasValidHeartbeat ? Math.max(0, now - heartbeatAt) : null;
   const status = String(state && state.status || '').trim();
   const leaseActive = leaseUntil > now;
+  const staleByHeartbeat = status === 'running' && leaseActive
+    ? (!hasValidHeartbeat || (heartbeatAgeMs !== null && heartbeatAgeMs > HEARTBEAT_STALE_THRESHOLD_MS))
+    : false;
   const running = status === 'running' && leaseActive && !staleByHeartbeat;
 
   return {
