@@ -8,6 +8,7 @@ const { generateBlocosPorGestor } = require('./core/visualBlocks');
 const { generateSupervisorAgg } = require('./core/aggregator');
 const { ensureDashboardsForAllGestores } = require('./core/gestorDashboards');
 const {
+  JOB_STATE_RANGE,
   readJobState,
   writeJobState,
   acquireJobStateLock,
@@ -195,14 +196,6 @@ async function readJobCursor(sheets, spreadsheetId) {
   return Number.isFinite(Number(state.cursor)) && Number(state.cursor) >= 0 ? Number(state.cursor) : 0;
 }
 
-async function writeJobCursor(sheets, spreadsheetId, cursor) {
-  const current = await readJobState(sheets, spreadsheetId);
-  await writeJobState(sheets, spreadsheetId, {
-    ...current,
-    cursor
-  });
-}
-
 async function applyDatabaseFormatting(sheets, spreadsheetId, totalRows) {
   const databaseRowsRes = await sheets.spreadsheets.values.get({
     spreadsheetId,
@@ -362,6 +355,9 @@ async function processClienteRow(row, indices) {
 async function run(options = {}) {
   const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
   const batchSize = Math.max(1, Number(options.batchSize || process.env.UPDATE_BATCH_SIZE || 10));
+  const processConcurrency = Math.max(1, Number(options.processConcurrency || process.env.PROCESS_CONCURRENCY || 3));
+  const progressUpdateIntervalMs = Math.max(1000, Number(options.progressUpdateIntervalMs || process.env.PROGRESS_UPDATE_INTERVAL_MS || 5000));
+  const includeSupervisorAgg = options.includeSupervisorAgg !== false;
   const skipDashboards = options.skipDashboards === true;
   let jobControl = options.jobControl || null;
 
@@ -485,9 +481,11 @@ async function run(options = {}) {
     return { ok: true, processed: 0, total: totalClientes, cursor, nextCursor: cursor, finished: true };
   }
 
-  const batchRows = [];
-  for (let batchIndex = 0; batchIndex < batchClientes.length; batchIndex += 1) {
-    const row = batchClientes[batchIndex];
+  const batchRows = new Array(batchClientes.length);
+  let processedCount = 0;
+  let lastProgressTouchAt = 0;
+
+  for (let start = 0; start < batchClientes.length; start += processConcurrency) {
     const active = await assertJobStateActive(sheets, process.env.SPREADSHEET_ID, jobControl);
     if (!active.active) {
       const err = new Error('Job interrompido por uma atualização mais recente.');
@@ -495,41 +493,49 @@ async function run(options = {}) {
       throw err;
     }
 
-    const index = cursor + batchIndex;
-    const values = await processClienteRow(row, {
-      idxCliente,
-      idxPlataforma,
-      idxCustomerId,
-      idxGestor,
-      idxSupervisor,
-      idxRevisao
-    });
+    const chunk = batchClientes.slice(start, start + processConcurrency);
+    const chunkResults = await Promise.all(chunk.map(async (row, offset) => {
+      const batchIndex = start + offset;
+      const index = cursor + batchIndex;
+      const values = await processClienteRow(row, {
+        idxCliente,
+        idxPlataforma,
+        idxCustomerId,
+        idxGestor,
+        idxSupervisor,
+        idxRevisao
+      });
+      const cliente = (row[idxCliente] || '').trim();
+      return { batchIndex, index, values, cliente };
+    }));
 
-    const cliente = (row[idxCliente] || '').trim();
-    console.log(`${cliente} processado`);
+    chunkResults.sort((a, b) => a.batchIndex - b.batchIndex);
 
-    // diagnostic
-    try { console.log('[diagnostic] processed client', { cliente, index }); } catch (e) { }
+    for (const item of chunkResults) {
+      console.log(`${item.cliente} processado`);
+      try { console.log('[diagnostic] processed client', { cliente: item.cliente, index: item.index }); } catch (e) { }
 
-    if (onProgress) {
-      await onProgress(index + 1, totalClientes, cliente);
-    }
-
-    // Atualiza o cursor durante o processamento para a UI mostrar progresso real em tempo quase real.
-    // Fazemos isso a cada 2 clientes para reduzir escrita excessiva na planilha.
-    if (((batchIndex + 1) % 2 === 0) || batchIndex === batchClientes.length - 1) {
-      try {
-        await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
-          stage: 'database',
-          progressCursor: index + 1,
-          lastAction: 'progress'
-        });
-      } catch (e) {
-        // best-effort: não interrompe o processamento por falha de telemetria
+      if (onProgress) {
+        await onProgress(item.index + 1, totalClientes, item.cliente);
       }
-    }
 
-    batchRows.push({ index, values });
+      processedCount += 1;
+      const now = Date.now();
+      const shouldTouchProgress = processedCount === batchClientes.length || (now - lastProgressTouchAt) >= progressUpdateIntervalMs;
+      if (shouldTouchProgress) {
+        try {
+          await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
+            stage: 'database',
+            progressCursor: item.index + 1,
+            lastAction: 'progress'
+          });
+          lastProgressTouchAt = now;
+        } catch (e) {
+        }
+      }
+
+      batchRows[item.batchIndex] = { index: item.index, values: item.values };
+    }
   }
 
   const firstRowIndex = cursor + 2;
@@ -589,24 +595,26 @@ async function run(options = {}) {
     console.error('Erro ao remover AGG_SUPERVISOR:', e);
   }
 
-  try {
+  if (includeSupervisorAgg) {
     try {
-      await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { stage: 'supervisor', lastAction: 'pre_generate_supervisor' });
-    } catch (e) { /* best-effort */ }
-    await generateBlocosPorGestor(sheets, process.env.SPREADSHEET_ID);
-    console.log('SUPERVISOR atualizado');
-  } catch (e) {
-    console.error('Erro ao gerar SUPERVISOR:', e);
-  }
+      try {
+        await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { stage: 'supervisor', lastAction: 'pre_generate_supervisor' });
+      } catch (e) { }
+      await generateBlocosPorGestor(sheets, process.env.SPREADSHEET_ID);
+      console.log('SUPERVISOR atualizado');
+    } catch (e) {
+      console.error('Erro ao gerar SUPERVISOR:', e);
+    }
 
-  try {
     try {
-      await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { stage: 'aggregating', lastAction: 'pre_generate_agg' });
-    } catch (e) { /* best-effort */ }
-    await generateSupervisorAgg(sheets, process.env.SPREADSHEET_ID);
-    console.log('AGG_SUPERVISOR atualizado');
-  } catch (e) {
-    console.error('Erro ao gerar AGG_SUPERVISOR:', e);
+      try {
+        await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { stage: 'aggregating', lastAction: 'pre_generate_agg' });
+      } catch (e) { }
+      await generateSupervisorAgg(sheets, process.env.SPREADSHEET_ID);
+      console.log('AGG_SUPERVISOR atualizado');
+    } catch (e) {
+      console.error('Erro ao gerar AGG_SUPERVISOR:', e);
+    }
   }
 
   if (!skipDashboards) {
