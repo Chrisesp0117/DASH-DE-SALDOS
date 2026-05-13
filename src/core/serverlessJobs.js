@@ -160,69 +160,84 @@ async function runFullUpdateJob(options = {}) {
   }
 
   const heartbeatTimer = await startHeartbeatTimer(sheets, spreadsheetId, jobControl, DEFAULT_HEARTBEAT_INTERVAL_MS);
-  let result;
-  try {
-    result = await runUpdateJob({
-      batchSize,
-      includeSupervisorAgg: includeSupervisor,
-      jobControl
-    });
-  } catch (error) {
-    if (String(error && error.code || '') === 'JOB_INTERRUPTED') {
+  const startTime = Date.now();
+  const maxMs = Math.max(10000, Number(options.maxMs || process.env.CRON_MAX_RUNTIME_MS || 150000));
+  let iterations = 0;
+  let totalProcessed = 0;
+  let result = null;
+
+  while (true) {
+    const elapsed = Date.now() - startTime;
+    if (elapsed >= maxMs) {
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
       return {
         ok: true,
         finished: false,
-        reason: 'restarted_by_newer_job',
-        iterations: 0,
-        totalProcessed: 0,
+        reason: 'time_budget_reached',
+        iterations,
+        totalProcessed,
         batchSize
       };
     }
 
-    const msg = String(error && (error.message || error.code || error.status) || '').toLowerCase();
-    const isQuota = msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(error && error.status) === '429' || String(error && error.code) === '429';
+    try {
+      result = await runUpdateJob({
+        batchSize,
+        includeSupervisorAgg: includeSupervisor,
+        jobControl
+      });
+    } catch (error) {
+      if (String(error && error.code || '') === 'JOB_INTERRUPTED') {
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
+        return {
+          ok: true,
+          finished: false,
+          reason: 'restarted_by_newer_job',
+          iterations,
+          totalProcessed,
+          batchSize
+        };
+      }
 
-    if (heartbeatTimer) clearInterval(heartbeatTimer);
-    await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
+      const msg = String(error && (error.message || error.code || error.status) || '').toLowerCase();
+      const isQuota = msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(error && error.status) === '429' || String(error && error.code) === '429';
 
-    return {
-      ok: isQuota ? true : false,
-      finished: false,
-      reason: isQuota ? 'quota_exceeded' : 'update_failed',
-      iterations: 1,
-      totalProcessed: 0,
-      batchSize,
-      error: isQuota ? undefined : (error && error.message ? error.message : 'Execução falhou')
-    };
-  }
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
 
-  if (!result || !result.ok) {
-    if (heartbeatTimer) clearInterval(heartbeatTimer);
-    await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
-    return {
-      ok: false,
-      finished: false,
-      reason: 'update_failed',
-      iterations: 1,
-      totalProcessed: 0,
-      batchSize,
-      error: result && result.error ? result.error : 'Execução falhou'
-    };
-  }
+      return {
+        ok: isQuota ? true : false,
+        finished: false,
+        reason: isQuota ? 'quota_exceeded' : 'update_failed',
+        iterations,
+        totalProcessed,
+        batchSize,
+        error: isQuota ? undefined : (error && error.message ? error.message : 'Execução falhou')
+      };
+    }
 
-  if (result.finished !== true) {
-    if (heartbeatTimer) clearInterval(heartbeatTimer);
-    await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
-    return {
-      ok: true,
-      finished: false,
-      reason: 'batch_completed',
-      iterations: 1,
-      totalProcessed: Number(result.processed || 0),
-      batchSize
-    };
+    if (!result || !result.ok) {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
+      return {
+        ok: false,
+        finished: false,
+        reason: 'update_failed',
+        iterations,
+        totalProcessed,
+        batchSize,
+        error: result && result.error ? result.error : 'Execução falhou'
+      };
+    }
+
+    iterations++;
+    totalProcessed += Number(result.processed || 0);
+
+    if (result.finished === true) {
+      break;
+    }
   }
 
   let supervisorResult = null;
@@ -266,8 +281,8 @@ async function runFullUpdateJob(options = {}) {
       ok: false,
       finished: true,
       reason: 'dashboard_failed',
-      iterations: 1,
-      totalProcessed: Number(result && result.processed || 0),
+      iterations,
+      totalProcessed,
       batchSize,
       dashboardResult
     };
@@ -279,8 +294,8 @@ async function runFullUpdateJob(options = {}) {
   return {
     ok: true,
     finished: true,
-    iterations: 1,
-    totalProcessed: Number(result.processed || 0),
+    iterations,
+    totalProcessed,
     batchSize,
     dashboardResult
   };

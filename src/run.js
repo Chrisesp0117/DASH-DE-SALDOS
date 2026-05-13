@@ -572,7 +572,9 @@ async function run(options = {}) {
     totalClients: totalClientes,
     lastAction: 'database_complete'
   });
-  await finishJobState(sheets, process.env.SPREADSHEET_ID, jobControl, 'idle');
+  if (!options.jobControl) {
+    await finishJobState(sheets, process.env.SPREADSHEET_ID, jobControl, 'idle');
+  }
 
   try {
     await clearDatabaseTail(sheets, process.env.SPREADSHEET_ID, totalClientes);

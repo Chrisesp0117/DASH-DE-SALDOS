@@ -260,22 +260,14 @@ async function mirrorSupervisorBlockToDashboard(sheets, spreadsheetId, sheetMeta
 }
 
 /**
- * Clears all data from SUPERVISOR and all DASH-{Gestor} sheets
- * to ensure clean state before atomic rewrite.
+ * Clears all data from DASH-{Gestor} sheets to ensure clean state before atomic rewrite.
  * IMPORTANT: Only clears columns A-D in DASH sheets to preserve other columns!
+ * NOTE: SUPERVISOR is intentionally NOT cleared here — it must remain intact so that
+ * mirrorSupervisorBlockToDashboard can copy from it in the same atomic refresh cycle.
  */
 async function clearAllDashboardData(sheets, spreadsheetId, gestores = []) {
   const sheetMeta = await getSheetMeta(sheets, spreadsheetId);
   const clearRequests = [];
-
-  // Clear SUPERVISOR (entire data range)
-  const supervisorSheet = sheetMeta.byTitle.get('SUPERVISOR');
-  if (supervisorSheet && supervisorSheet.properties && supervisorSheet.properties.sheetId !== null) {
-    clearRequests.push({
-      sheetId: supervisorSheet.properties.sheetId,
-      range: 'SUPERVISOR!A2:Z'
-    });
-  }
 
   // Clear only columns A-D in all DASH-{Gestor} sheets (preserve other columns)
   for (const gestor of gestores) {

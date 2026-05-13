@@ -345,6 +345,11 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
   const sheet = (meta.data.sheets || []).find(s => s.properties && s.properties.title === 'SUPERVISOR');
   const sheetId = sheet && sheet.properties && sheet.properties.sheetId;
 
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId,
+    range: 'SUPERVISOR!A1:Z'
+  });
+
   await sheets.spreadsheets.values.update({
     spreadsheetId,
     range: 'SUPERVISOR!A1',
