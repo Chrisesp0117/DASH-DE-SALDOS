@@ -287,6 +287,29 @@ async function runFullUpdateJob(options = {}) {
     supervisorResult = await generateBlocosPorGestor(sheets, spreadsheetId);
   }
 
+  // Verifica se ainda há tempo suficiente para gerar dashboards.
+  // Se não houver, salva o estado e libera o lock para que outro ciclo possa continuar.
+  try {
+    const elapsedAfterSupervisor = Date.now() - startTime;
+    const remainingMsAfterSupervisor = maxMs - elapsedAfterSupervisor;
+    // Reserve pelo menos 40s para a atualização de dashboards (ajustável)
+    if (includeDashboards && remainingMsAfterSupervisor < 40000) {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      try {
+        await touchJobState(sheets, spreadsheetId, jobControl, { stage: 'dashboards_pending', lastAction: 'insufficient_time_for_dashboards' });
+      } catch (e) { }
+      await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
+      return {
+        ok: true,
+        finished: false,
+        reason: 'insufficient_time_for_dashboards',
+        iterations,
+        totalProcessed,
+        batchSize
+      };
+    }
+  } catch (e) { /* ignora erros nessa verificação */ }
+
   try {
     await touchJobState(sheets, spreadsheetId, jobControl, { stage: 'dashboards', lastAction: 'pre_dashboards' });
   } catch (e) { }
