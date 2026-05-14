@@ -620,7 +620,9 @@ async function run(options = {}) {
   if (!skipDashboards) {
     try {
       await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { stage: 'dashboards', lastAction: 'pre_dashboards' });
-      const dashResult = await ensureDashboardsForAllGestores(sheets, process.env.SPREADSHEET_ID);
+      const dashResult = await ensureDashboardsForAllGestores(sheets, process.env.SPREADSHEET_ID, {
+        supervisorResult
+      });
       if (dashResult.ok) {
         const criadas = dashResult.resultados.filter(r => r.status === 'criada').length;
         const recriadas = dashResult.resultados.filter(r => r.status === 'recriada').length;

@@ -396,7 +396,9 @@ async function runDashboardJob(options = {}) {
     if (options.includeDashboards !== false) {
       // Use atomic refresh to delete + rewrite all dashboards atomically
       // This prevents partial write errors during dashboard updates
-      results.dashboards = await atomicRefreshAllDashboards(sheets, spreadsheetId);
+      results.dashboards = await atomicRefreshAllDashboards(sheets, spreadsheetId, {
+        supervisorResult: results.supervisor
+      });
     }
 
     return { ok: true, ...results };

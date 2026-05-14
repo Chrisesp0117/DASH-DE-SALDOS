@@ -261,7 +261,8 @@ async function mirrorSupervisorBlockToDashboard(sheets, spreadsheetId, sheetMeta
 
 /**
  * Clears all data from DASH-{Gestor} sheets to ensure clean state before atomic rewrite.
- * IMPORTANT: Only clears columns A-D in DASH sheets to preserve other columns!
+ * IMPORTANT: Clears the full dashboard writing area (A:I) so old mirrored blocks
+ * do not survive when the layout changes or a previous write was interrupted.
  * NOTE: SUPERVISOR is intentionally NOT cleared here — it must remain intact so that
  * mirrorSupervisorBlockToDashboard can copy from it in the same atomic refresh cycle.
  */
@@ -298,10 +299,10 @@ async function clearAllDashboardData(sheets, spreadsheetId, gestores = []) {
  * Atomic refresh: clear all dashboards, regenerate SUPERVISOR, rewrite all DASH sheets
  * Prevents partial write errors by doing delete + full rewrite as a single operation
  */
-async function atomicRefreshAllDashboards(sheets, spreadsheetId) {
+async function atomicRefreshAllDashboards(sheets, spreadsheetId, options = {}) {
   try {
-    // Step 1: Generate supervisor with all blocks
-    const supervisorResult = await generateBlocosPorGestor(sheets, spreadsheetId);
+    // Step 1: Generate supervisor with all blocks, unless a fresh result was already provided
+    const supervisorResult = options.supervisorResult || await generateBlocosPorGestor(sheets, spreadsheetId);
     
     // SAFETY CHECK: If SUPERVISOR generation was skipped (database empty), don't update DASH sheets
     if (supervisorResult.skipped) {
@@ -610,10 +611,7 @@ async function createDashboardForGestor(sheets, spreadsheetId, gestor, options =
       throw new Error(`Não foi possível criar a aba ${sheetTitle}.`);
     }
 
-    await sheets.spreadsheets.values.clear({
-      spreadsheetId,
-      range: `'${sanitizeSheetName(sheetTitle)}'!A:D`
-    });
+    console.log(`[gestorDashboards] preparando atualização do DASH para gestor=${gestor} | metaRows=${metaRows.length} googleRows=${googleRows.length} values=${values.length} created=${ensureResult.created}`);
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
@@ -669,6 +667,9 @@ async function ensureDashboardsForAllGestores(sheets, spreadsheetId, options = {
     const blocksByGestor = new Map((supervisorResult.blocks || []).map(block => [block.gestor, block]));
     const gestores = Array.from(blocksByGestor.keys());
 
+    // Clear all dashboards BEFORE rewriting to avoid stale duplicated blocks
+    await clearAllDashboardData(sheets, spreadsheetId, gestores);
+
     const dbRes = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range: 'DATABASE!A2:M'
@@ -678,6 +679,7 @@ async function ensureDashboardsForAllGestores(sheets, spreadsheetId, options = {
     const resultados = [];
 
     for (const gestor of gestores) {
+      console.log(`[gestorDashboards] criando dashboard para gestor=${gestor} (atomic)`);
       const result = await createDashboardForGestor(sheets, spreadsheetId, gestor, {
         sheetMeta,
         databaseRows
