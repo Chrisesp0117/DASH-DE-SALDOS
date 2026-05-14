@@ -83,7 +83,7 @@ async function getMetaData(accountId, token, context = {}) {
   const data = saldoRes.data;
 
   const spendCapMajor = parseMetaAmount(data.spend_cap, true);
-  const amountSpentMajor = parseMetaAmount(data.amount_spent, false);
+  const amountSpentMajor = parseMetaAmount(data.amount_spent, true);
   const hasValidSpendCap = Number.isFinite(spendCapMajor) && spendCapMajor > 0;
 
   let saldo = null;

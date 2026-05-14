@@ -328,18 +328,21 @@ async function atomicRefreshAllDashboards(sheets, spreadsheetId) {
     // Step 3: Clear all dashboards at once
     await clearAllDashboardData(sheets, spreadsheetId, gestores);
 
-    // Step 4: Regenerate SUPERVISOR and all DASH sheets from scratch
+    // Step 4: Read DATABASE rows to build DASH sheets with both Meta and Google
+    const dbRes = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: 'DATABASE!A2:M'
+    });
+    const databaseRows = dbRes.data.values || [];
+
+    // Step 5: Rebuild each DASH sheet from DATABASE rows (vertical Meta+Google layout)
     const sheetMeta = await getSheetMeta(sheets, spreadsheetId);
-    const sourceSheet = sheetMeta.byTitle.get('SUPERVISOR');
-    const sourceSheetId = sourceSheet && sourceSheet.properties ? sourceSheet.properties.sheetId : null;
-    const blocksByGestor = new Map((supervisorResult.blocks || []).map(block => [block.gestor, block]));
 
     const resultados = [];
     for (const gestor of gestores) {
       const result = await createDashboardForGestor(sheets, spreadsheetId, gestor, {
         sheetMeta,
-        sourceSheetId,
-        sourceBlock: blocksByGestor.get(gestor)
+        databaseRows
       });
 
       resultados.push({
@@ -663,17 +666,21 @@ async function ensureDashboardsForAllGestores(sheets, spreadsheetId, options = {
     }
 
     const sheetMeta = await getSheetMeta(sheets, spreadsheetId);
-    const sourceSheet = sheetMeta.byTitle.get('SUPERVISOR');
-    const sourceSheetId = sourceSheet && sourceSheet.properties ? sourceSheet.properties.sheetId : null;
     const blocksByGestor = new Map((supervisorResult.blocks || []).map(block => [block.gestor, block]));
     const gestores = Array.from(blocksByGestor.keys());
+
+    const dbRes = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: 'DATABASE!A2:M'
+    });
+    const databaseRows = dbRes.data.values || [];
+
     const resultados = [];
 
     for (const gestor of gestores) {
       const result = await createDashboardForGestor(sheets, spreadsheetId, gestor, {
         sheetMeta,
-        sourceSheetId,
-        sourceBlock: blocksByGestor.get(gestor)
+        databaseRows
       });
 
       resultados.push({

@@ -338,25 +338,44 @@ module.exports = async (req, res) => {
         }, 409);
       }
 
-      runFullUpdateJob({
+      const maxMs = Math.max(10000, Number(process.env.CRON_MAX_RUNTIME_MS || 150000));
+      const result = await runFullUpdateJob({
         batchSize,
-        maxMs: Math.max(60000, Number(process.env.CRON_MAX_RUNTIME_MS || 120000)),
+        maxMs,
         rejectIfRunning: true,
         force,
         resetCursor,
         owner,
         includeSupervisor: !databaseOnly,
         includeDashboards: !databaseOnly
-      }).catch(err => {
-        console.error('Background job error:', err && err.message);
       });
+
+      if (!result || !result.ok) {
+        if (result && result.running) {
+          return sendJsonResponse(res, {
+            ok: false,
+            running: true,
+            reason: result.reason || 'job_already_running',
+            state: result.state
+          }, 409);
+        }
+        return sendJsonResponse(res, {
+          ok: false,
+          error: result && result.error ? result.error : 'Execução falhou'
+        }, 500);
+      }
 
       return sendJsonResponse(res, {
         ok: true,
         started: true,
-        message: 'Atualização iniciada. Acompanhe o progresso em tempo real.',
+        finished: result.finished,
+        message: result.finished
+          ? 'Atualização concluída com sucesso.'
+          : 'Atualização parcial concluída. O restante será processado no próximo ciclo.',
+        iterations: result.iterations,
+        totalProcessed: result.totalProcessed,
         refreshInterval: 2000
-      }, 202);
+      }, result.finished ? 200 : 202);
     } catch (error) {
       const payload = {
         ok: false,
