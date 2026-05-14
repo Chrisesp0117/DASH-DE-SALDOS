@@ -437,7 +437,11 @@ async function run(options = {}) {
   const totalClientes = clientes.length;
 
   let cursor = Number.isFinite(Number(options.cursor)) ? Math.max(0, Number(options.cursor)) : await readJobCursor(sheets, process.env.SPREADSHEET_ID);
-  if (!Number.isFinite(cursor) || cursor < 0 || cursor >= totalClientes) {
+  // Permite cursor === totalClientes para retomar jobs em que a fase DATABASE
+  // já terminou e faltam apenas etapas finais (supervisor/dashboards).
+  if (totalClientes <= 0) {
+    cursor = 0;
+  } else if (!Number.isFinite(cursor) || cursor < 0 || cursor > totalClientes) {
     cursor = 0;
   }
 
@@ -620,9 +624,7 @@ async function run(options = {}) {
   if (!skipDashboards) {
     try {
       await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { stage: 'dashboards', lastAction: 'pre_dashboards' });
-      const dashResult = await ensureDashboardsForAllGestores(sheets, process.env.SPREADSHEET_ID, {
-        supervisorResult
-      });
+      const dashResult = await ensureDashboardsForAllGestores(sheets, process.env.SPREADSHEET_ID);
       if (dashResult.ok) {
         const criadas = dashResult.resultados.filter(r => r.status === 'criada').length;
         const recriadas = dashResult.resultados.filter(r => r.status === 'recriada').length;

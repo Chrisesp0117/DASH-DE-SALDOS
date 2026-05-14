@@ -1,6 +1,6 @@
 require('dotenv').config({ path: '.env' });
 
-const { runFullUpdateJob } = require('../src/core/serverlessJobs');
+const { runFullUpdateJob, triggerNextCycle } = require('../src/core/serverlessJobs');
 const { getSheets } = require('../src/services/sheets');
 const { readJobState, getJobLockMeta } = require('../src/core/jobState');
 
@@ -81,7 +81,7 @@ function isJsonRequest(req) {
 function renderHtmlPage(params) {
   const initialStateJson = JSON.stringify(params.initialState || { running: false, cursor: 0, totalClients: 0, stage: 'idle' });
   const secret = String(params.secret || '');
-  const batchSize = Number(params.batchSize || 50);
+  const batchSize = Number(params.batchSize || 20);
   const force = params.force ? '1' : '0';
   const reset = params.resetCursor ? '1' : '0';
   const databaseOnly = params.databaseOnly ? '1' : '0';
@@ -309,7 +309,7 @@ module.exports = async (req, res) => {
   }
 
   const batchSizeParam = req && req.query ? req.query.batchSize : getQueryValue(req, 'batchSize');
-  const batchSize = Math.max(10, Number(batchSizeParam || process.env.UPDATE_BATCH_SIZE || 50));
+  const batchSize = Math.max(5, Number(batchSizeParam || process.env.UPDATE_BATCH_SIZE || 20));
   const forceParam = req && req.query ? req.query.force : getQueryValue(req, 'force');
   const force = String(forceParam || '').toLowerCase() === 'true' || String(forceParam || '') === '1';
 
@@ -365,6 +365,20 @@ module.exports = async (req, res) => {
         }, 500);
       }
 
+      let continuation = null;
+      const shouldAutoContinue = result.reason === 'time_budget_reached' || result.reason === 'insufficient_time_for_dashboards';
+      if (shouldAutoContinue) {
+        continuation = await triggerNextCycle(req, {
+          path: '/api/update-now',
+          query: {
+            batchSize,
+            force: '0',
+            reset: '0',
+            databaseOnly: databaseOnly ? '1' : '0'
+          }
+        });
+      }
+
       return sendJsonResponse(res, {
         ok: true,
         started: true,
@@ -374,7 +388,8 @@ module.exports = async (req, res) => {
           : 'Atualização parcial concluída. O restante será processado no próximo ciclo.',
         iterations: result.iterations,
         totalProcessed: result.totalProcessed,
-        refreshInterval: 2000
+        refreshInterval: 2000,
+        continuation
       }, result.finished ? 200 : 202);
     } catch (error) {
       const payload = {

@@ -105,6 +105,90 @@ function assertCronAuth(req, res) {
   return null;
 }
 
+function getRequestBaseUrl(req) {
+  const forwardedHost = String(readHeader(req, 'x-forwarded-host') || '').trim();
+  const host = forwardedHost || String(readHeader(req, 'host') || '').trim();
+  if (!host) return '';
+
+  const forwardedProto = String(readHeader(req, 'x-forwarded-proto') || '').trim().toLowerCase();
+  const proto = forwardedProto === 'http' || forwardedProto === 'https' ? forwardedProto : 'https';
+  return `${proto}://${host}`;
+}
+
+async function triggerNextCycle(req, options = {}) {
+  const autoEnabled = String(process.env.AUTO_CHAIN_ENABLED || '1').trim().toLowerCase() !== '0';
+  if (!autoEnabled) {
+    return { scheduled: false, reason: 'auto_chain_disabled' };
+  }
+
+  if (typeof fetch !== 'function') {
+    return { scheduled: false, reason: 'fetch_unavailable' };
+  }
+
+  const expectedSecret = String(process.env.CRON_SECRET || '').trim();
+  if (!expectedSecret) {
+    return { scheduled: false, reason: 'missing_cron_secret' };
+  }
+
+  const incomingDepth = Number(readHeader(req, 'x-auto-chain-depth') || 0);
+  const depth = Number.isFinite(incomingDepth) && incomingDepth >= 0 ? incomingDepth : 0;
+  const maxDepth = Math.max(0, Number(process.env.AUTO_CHAIN_MAX_DEPTH || 3));
+  if (depth >= maxDepth) {
+    return { scheduled: false, reason: 'max_depth_reached', depth, maxDepth };
+  }
+
+  const baseUrl = getRequestBaseUrl(req);
+  if (!baseUrl) {
+    return { scheduled: false, reason: 'missing_host' };
+  }
+
+  const path = String(options.path || '/api/cron/update-full');
+  const query = options.query || {};
+  const params = new URLSearchParams();
+  Object.entries(query).forEach(([key, value]) => {
+    if (value === undefined || value === null || String(value) === '') return;
+    params.set(key, String(value));
+  });
+
+  const targetUrl = `${baseUrl}${path}${params.toString() ? `?${params.toString()}` : ''}`;
+  const timeoutMs = Math.max(800, Number(process.env.AUTO_CHAIN_FETCH_TIMEOUT_MS || 2000));
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeout = setTimeout(() => {
+    if (controller) {
+      controller.abort();
+    }
+  }, timeoutMs);
+
+  try {
+    await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'x-cron-secret': expectedSecret,
+        'x-auto-chain': '1',
+        'x-auto-chain-depth': String(depth + 1)
+      },
+      cache: 'no-store',
+      signal: controller ? controller.signal : undefined
+    });
+
+    return {
+      scheduled: true,
+      reason: 'triggered',
+      depth: depth + 1,
+      maxDepth
+    };
+  } catch (error) {
+    return {
+      scheduled: false,
+      reason: error && error.name === 'AbortError' ? 'request_timeout' : 'request_error',
+      error: error && error.message ? error.message : String(error)
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function runUpdateJob(options = {}) {
   return run({
     skipDashboards: true,
@@ -114,7 +198,7 @@ async function runUpdateJob(options = {}) {
 }
 
 async function runFullUpdateJob(options = {}) {
-  const batchSize = Math.max(1, Number(options.batchSize || process.env.UPDATE_BATCH_SIZE || 50));
+  const batchSize = Math.max(5, Number(options.batchSize || process.env.UPDATE_BATCH_SIZE || 20));
   const includeDashboards = options.includeDashboards !== false;
   const includeSupervisor = options.includeSupervisor !== false;
   const rejectIfRunning = options.rejectIfRunning !== false;
@@ -414,6 +498,7 @@ async function runDashboardJob(options = {}) {
 module.exports = {
   assertCronAuth,
   getCronSecretFromRequest,
+  triggerNextCycle,
   sendJson,
   runUpdateJob,
   runFullUpdateJob,
