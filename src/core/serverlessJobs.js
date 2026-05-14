@@ -171,6 +171,18 @@ async function runFullUpdateJob(options = {}) {
     const elapsed = Date.now() - startTime;
     if (elapsed >= maxMs) {
       if (heartbeatTimer) clearInterval(heartbeatTimer);
+      // Importante: atualizar o cursor ANTES de liberar o lock
+      if (result && result.nextCursor !== undefined) {
+        try {
+          await touchJobState(sheets, spreadsheetId, jobControl, {
+            cursor: result.nextCursor,
+            stage: 'database',
+            lastAction: 'timeout_save_cursor'
+          });
+        } catch (e) {
+          console.warn('[runFullUpdateJob] falha ao salvar cursor antes do timeout:', e && e.message);
+        }
+      }
       await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
       return {
         ok: true,
@@ -206,6 +218,18 @@ async function runFullUpdateJob(options = {}) {
       const isQuota = msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(error && error.status) === '429' || String(error && error.code) === '429';
 
       if (heartbeatTimer) clearInterval(heartbeatTimer);
+      // Importante: atualizar o cursor ANTES de liberar o lock
+      if (result && result.nextCursor !== undefined) {
+        try {
+          await touchJobState(sheets, spreadsheetId, jobControl, {
+            cursor: result.nextCursor,
+            stage: 'database',
+            lastAction: 'error_save_cursor'
+          });
+        } catch (e) {
+          console.warn('[runFullUpdateJob] falha ao salvar cursor antes de erro:', e && e.message);
+        }
+      }
       await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
 
       return {
@@ -221,6 +245,18 @@ async function runFullUpdateJob(options = {}) {
 
     if (!result || !result.ok) {
       if (heartbeatTimer) clearInterval(heartbeatTimer);
+      // Importante: atualizar o cursor ANTES de liberar o lock
+      if (result && result.nextCursor !== undefined) {
+        try {
+          await touchJobState(sheets, spreadsheetId, jobControl, {
+            cursor: result.nextCursor,
+            stage: 'database',
+            lastAction: 'failure_save_cursor'
+          });
+        } catch (e) {
+          console.warn('[runFullUpdateJob] falha ao salvar cursor antes de falha:', e && e.message);
+        }
+      }
       await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
       return {
         ok: false,
