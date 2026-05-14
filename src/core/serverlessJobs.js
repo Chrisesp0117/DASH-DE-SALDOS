@@ -151,7 +151,7 @@ async function triggerNextCycle(req, options = {}) {
   });
 
   const targetUrl = `${baseUrl}${path}${params.toString() ? `?${params.toString()}` : ''}`;
-  const timeoutMs = Math.max(800, Number(process.env.AUTO_CHAIN_FETCH_TIMEOUT_MS || 2000));
+  const timeoutMs = Math.max(1000, Number(process.env.AUTO_CHAIN_FETCH_TIMEOUT_MS || 5000));
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const timeout = setTimeout(() => {
     if (controller) {
@@ -198,7 +198,7 @@ async function runUpdateJob(options = {}) {
 }
 
 async function runFullUpdateJob(options = {}) {
-  const batchSize = Math.max(5, Number(options.batchSize || process.env.UPDATE_BATCH_SIZE || 20));
+  const batchSize = Math.max(5, Number(options.batchSize || process.env.UPDATE_BATCH_SIZE || 10));
   const includeDashboards = options.includeDashboards !== false;
   const includeSupervisor = options.includeSupervisor !== false;
   const rejectIfRunning = options.rejectIfRunning !== false;

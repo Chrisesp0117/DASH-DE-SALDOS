@@ -81,7 +81,7 @@ function isJsonRequest(req) {
 function renderHtmlPage(params) {
   const initialStateJson = JSON.stringify(params.initialState || { running: false, cursor: 0, totalClients: 0, stage: 'idle' });
   const secret = String(params.secret || '');
-  const batchSize = Number(params.batchSize || 20);
+  const batchSize = Number(params.batchSize || 10);
   const force = params.force ? '1' : '0';
   const reset = params.resetCursor ? '1' : '0';
   const databaseOnly = params.databaseOnly ? '1' : '0';
@@ -309,7 +309,7 @@ module.exports = async (req, res) => {
   }
 
   const batchSizeParam = req && req.query ? req.query.batchSize : getQueryValue(req, 'batchSize');
-  const batchSize = Math.max(5, Number(batchSizeParam || process.env.UPDATE_BATCH_SIZE || 20));
+  const batchSize = Math.max(5, Number(batchSizeParam || process.env.UPDATE_BATCH_SIZE || 10));
   const forceParam = req && req.query ? req.query.force : getQueryValue(req, 'force');
   const force = String(forceParam || '').toLowerCase() === 'true' || String(forceParam || '') === '1';
 
