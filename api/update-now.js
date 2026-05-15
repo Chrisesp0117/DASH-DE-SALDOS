@@ -283,7 +283,7 @@ function renderHtmlPage(params) {
 
           if (!data.running && !lockUi) {
             if (manualRunActive && total > 0 && cursor < total) {
-              setMessage(`Atualização pausada em ${cursor}/${total}. Retomando automaticamente...`, 'warn');
+              setMessage('Atualização pausada em ' + cursor + '/' + total + '. Retomando automaticamente...', 'warn');
               scheduleAutoResume(data);
             } else if (total > 0 && cursor >= total) {
               setMessage('Atualização concluída com sucesso.', 'ok');
