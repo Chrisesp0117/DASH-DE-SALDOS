@@ -141,6 +141,7 @@ function renderHtmlPage(params) {
       <div class="actions">
         <button id="startBtn" type="button">Iniciar atualização</button>
         <button id="refreshBtn" class="ghost" type="button">Atualizar status</button>
+        <button id="forceBtn" class="ghost" type="button">Forçar retomada</button>
       </div>
 
       <div class="foot">Página multiusuário: detecta execução ativa e bloqueia novos disparos automaticamente.</div>
@@ -158,6 +159,7 @@ function renderHtmlPage(params) {
 
       const startBtn = document.getElementById('startBtn');
       const refreshBtn = document.getElementById('refreshBtn');
+      const forceBtn = document.getElementById('forceBtn');
       const statusPill = document.getElementById('statusPill');
       const messageBox = document.getElementById('messageBox');
       const progressFill = document.getElementById('progressFill');
@@ -231,6 +233,8 @@ function renderHtmlPage(params) {
         const stage = String(payload.stage || (payload.state && payload.state.stage) || 'idle');
         const owner = String((payload.state && payload.state.owner) || '');
         const isMine = owner && owner === ownerId;
+        const staleByHeartbeat = !!payload.staleByHeartbeat;
+        const heartbeatAgeMs = Number(payload.heartbeatAgeMs || 0);
         const pct = total > 0 ? Math.min(100, Math.max(0, Math.round((cursor / total) * 100))) : 0;
 
         progressFill.style.width = pct + '%';
@@ -242,7 +246,9 @@ function renderHtmlPage(params) {
           statusPill.textContent = 'Atualização em andamento';
           statusPill.className = 'pill running';
           if (!lockUi) {
-            if (isMine || lastStartedByMe) {
+            if (staleByHeartbeat) {
+              setMessage('⚠️ Possível travamento detectado. Heartbeat há ' + Math.round(heartbeatAgeMs / 1000) + 's.', 'error');
+            } else if (isMine || lastStartedByMe) {
               setMessage('Atualização em andamento (iniciada por você).', 'warn');
             } else {
               setMessage('Atualização em andamento por outro usuário/processo. Ação bloqueada.', 'warn');
@@ -259,6 +265,7 @@ function renderHtmlPage(params) {
         }
 
         startBtn.disabled = running || lockUi;
+        forceBtn.disabled = !staleByHeartbeat || lockUi;
       }
 
       async function fetchStatus() {
@@ -300,7 +307,7 @@ function renderHtmlPage(params) {
         }
       }
 
-      async function startUpdate() {
+      async function startUpdate(forceRestart = false) {
         clearAutoResumeTimer();
         autoResumeAttempts = 0;
         lastAutoResumeCursor = -1;
@@ -319,7 +326,7 @@ function renderHtmlPage(params) {
 
           const query = new URLSearchParams({
             batchSize,
-            force,
+            force: forceRestart ? '1' : force,
             reset,
             databaseOnly,
             owner: ownerId
@@ -359,6 +366,7 @@ function renderHtmlPage(params) {
 
       startBtn.addEventListener('click', startUpdate);
       refreshBtn.addEventListener('click', fetchStatus);
+      forceBtn.addEventListener('click', () => startUpdate(true));
 
       applyState(initialState);
       if (initialState && initialState.running) {
@@ -400,7 +408,7 @@ module.exports = async (req, res) => {
   if (method === 'POST' || isJsonRequest(req)) {
     try {
       const active = await isJobActiveNow();
-      if (active.running) {
+      if (active.running && !(force && active.lockMeta && active.lockMeta.staleByHeartbeat)) {
         return sendJsonResponse(res, {
           ok: false,
           running: true,
