@@ -355,7 +355,7 @@ async function processClienteRow(row, indices) {
 async function run(options = {}) {
   const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
   const batchSize = Math.max(1, Number(options.batchSize || process.env.UPDATE_BATCH_SIZE || 10));
-  const processConcurrency = Math.max(1, Number(options.processConcurrency || process.env.PROCESS_CONCURRENCY || 3));
+  const processConcurrency = Math.max(1, Number(options.processConcurrency || process.env.PROCESS_CONCURRENCY || 6));
   const progressUpdateIntervalMs = Math.max(1000, Number(options.progressUpdateIntervalMs || process.env.PROGRESS_UPDATE_INTERVAL_MS || 5000));
   const includeSupervisorAgg = options.includeSupervisorAgg !== false;
   const skipDashboards = options.skipDashboards === true;

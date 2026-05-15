@@ -338,7 +338,7 @@ module.exports = async (req, res) => {
         }, 409);
       }
 
-      const maxMs = Math.max(10000, Number(process.env.CRON_MAX_RUNTIME_MS || 150000));
+      const maxMs = Math.max(10000, Number(process.env.CRON_MAX_RUNTIME_MS || 25000));
       const result = await runFullUpdateJob({
         batchSize,
         maxMs,
