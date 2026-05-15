@@ -132,7 +132,8 @@ async function triggerNextCycle(req, options = {}) {
 
   const incomingDepth = Number(readHeader(req, 'x-auto-chain-depth') || 0);
   const depth = Number.isFinite(incomingDepth) && incomingDepth >= 0 ? incomingDepth : 0;
-  const maxDepth = Math.max(0, Number(process.env.AUTO_CHAIN_MAX_DEPTH || 3));
+  // Permite mais elos para que a atualização manual não pare cedo demais em bases maiores.
+  const maxDepth = Math.max(0, Number(process.env.AUTO_CHAIN_MAX_DEPTH || 25));
   if (depth >= maxDepth) {
     return { scheduled: false, reason: 'max_depth_reached', depth, maxDepth };
   }

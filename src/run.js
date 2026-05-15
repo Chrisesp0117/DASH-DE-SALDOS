@@ -359,6 +359,7 @@ async function run(options = {}) {
   const progressUpdateIntervalMs = Math.max(1000, Number(options.progressUpdateIntervalMs || process.env.PROGRESS_UPDATE_INTERVAL_MS || 5000));
   const includeSupervisorAgg = options.includeSupervisorAgg !== false;
   const skipDashboards = options.skipDashboards === true;
+  const ownsJobControl = !options.jobControl;
   let jobControl = options.jobControl || null;
 
   const sheets = await getSheets();
@@ -476,6 +477,9 @@ async function run(options = {}) {
       // Ainda há clientes! Não marca como finished.
       console.log('Lote vazio em cursor=' + cursor + ' mas totalClientes=' + totalClientes + '; continuar processando');
       await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { cursor });
+      if (ownsJobControl) {
+        await releaseJobState(sheets, process.env.SPREADSHEET_ID, jobControl, 'idle');
+      }
       return { ok: true, processed: 0, total: totalClientes, cursor, nextCursor: cursor, finished: false };
     }
     
@@ -571,6 +575,9 @@ async function run(options = {}) {
   if (!finished) {
     const batchTime = new Date().toISOString();
     console.log(`Lote concluído | processed=${batchRows.length} | nextCursor=${nextCursor}/${totalClientes} | time=${batchTime}`);
+    if (ownsJobControl) {
+      await releaseJobState(sheets, process.env.SPREADSHEET_ID, jobControl, 'idle');
+    }
     return { ok: true, processed: batchRows.length, total: totalClientes, cursor, nextCursor, finished: false };
   }
 

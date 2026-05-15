@@ -22,6 +22,37 @@ function getQueryValue(urlValue, key) {
   }
 }
 
+function readRequestBody(req) {
+  const body = req && req.body;
+
+  if (!body) {
+    return {};
+  }
+
+  if (typeof body === 'object') {
+    return body;
+  }
+
+  if (typeof body === 'string') {
+    try {
+      return JSON.parse(body);
+    } catch (_) {
+      return {};
+    }
+  }
+
+  return {};
+}
+
+function parseCursorValue(value) {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.max(0, parsed) : undefined;
+}
+
 module.exports = async (req, res) => {
   const authResponse = assertCronAuth(req, res);
   if (authResponse) {
@@ -29,10 +60,38 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const rawBatchSize = req.query?.batchSize || getQueryValue(req && req.url, 'batchSize') || process.env.UPDATE_BATCH_SIZE || 3;
+    const body = readRequestBody(req);
+    const rawBatchSize = req.query?.batchSize || body.batchSize || getQueryValue(req && req.url, 'batchSize') || process.env.UPDATE_BATCH_SIZE || 3;
+    const rawCursor = req.query?.cursor || body.cursor || getQueryValue(req && req.url, 'cursor');
     const batchSize = Math.max(1, Number(rawBatchSize));
-    const result = await runUpdateJob({ batchSize });
-    return sendJson(res, { ok: true, message: 'Planilha atualizada com sucesso', batchSize, result }, 200);
+    const cursor = parseCursorValue(rawCursor);
+
+    const result = await runUpdateJob({ batchSize, cursor });
+
+    if (!result || result.ok === false) {
+      return sendJson(res, {
+        ok: false,
+        error: result && result.error ? result.error : 'Execução falhou',
+        result
+      }, 500);
+    }
+
+    const nextCursor = result.nextCursor !== undefined && result.nextCursor !== null
+      ? Number(result.nextCursor)
+      : null;
+
+    return sendJson(res, {
+      ok: true,
+      message: result.finished ? 'Lote finalizado' : 'Lote processado; continuação disponível',
+      batchSize,
+      cursor: result.cursor !== undefined ? Number(result.cursor) : (cursor !== undefined ? cursor : null),
+      nextCursor: Number.isFinite(nextCursor) ? nextCursor : null,
+      processed: Number(result.processed || 0),
+      total: Number(result.total || 0),
+      finished: result.finished === true,
+      more: result.finished !== true,
+      result
+    }, 200);
   } catch (error) {
     console.error('❌ Erro no cron de atualização:', error);
     return sendJson(res, { ok: false, error: error.message }, 500);

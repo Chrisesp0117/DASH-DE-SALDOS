@@ -168,6 +168,56 @@ function renderHtmlPage(params) {
       let lockUi = false;
       const ownerId = 'ui|' + Math.random().toString(36).slice(2, 10) + '|' + Date.now().toString(36);
       let lastStartedByMe = false;
+      let manualRunActive = false;
+      let autoResumeTimer = null;
+      let autoResumeAttempts = 0;
+      let lastAutoResumeCursor = -1;
+
+      function clearAutoResumeTimer() {
+        if (autoResumeTimer) {
+          clearTimeout(autoResumeTimer);
+          autoResumeTimer = null;
+        }
+      }
+
+      function scheduleAutoResume(payload) {
+        const running = !!(payload && payload.running);
+        const total = Number((payload && payload.totalClients) || (payload && payload.state && payload.state.totalClients) || 0);
+        const cursor = Number((payload && payload.displayCursor) || (payload && payload.cursor) || 0);
+
+        if (cursor > lastAutoResumeCursor) {
+          lastAutoResumeCursor = cursor;
+          autoResumeAttempts = 0;
+        }
+
+        if (running || lockUi || !manualRunActive || total <= 0 || cursor >= total) {
+          clearAutoResumeTimer();
+          return;
+        }
+
+        if (autoResumeAttempts >= 8) {
+          clearAutoResumeTimer();
+          manualRunActive = false;
+          setMessage('A atualização pausou várias vezes no mesmo ponto. Tente atualizar novamente.', 'error');
+          return;
+        }
+
+        if (autoResumeTimer) {
+          return;
+        }
+
+        autoResumeTimer = setTimeout(async () => {
+          autoResumeTimer = null;
+          autoResumeAttempts += 1;
+
+          if (lockUi || !manualRunActive) {
+            return;
+          }
+
+          setMessage('A atualização pausou no meio do caminho. Retomando automaticamente...', 'warn');
+          await startUpdate(true);
+        }, 2500);
+      }
 
       function setMessage(text, type) {
         messageBox.textContent = text;
@@ -201,7 +251,11 @@ function renderHtmlPage(params) {
         } else {
           statusPill.textContent = 'Sem atualização ativa';
           statusPill.className = 'pill idle';
-          lastStartedByMe = false;
+
+          if (total > 0 && cursor >= total) {
+            manualRunActive = false;
+            lastStartedByMe = false;
+          }
         }
 
         startBtn.disabled = running || lockUi;
@@ -223,8 +277,21 @@ function renderHtmlPage(params) {
             return null;
           }
           applyState(data);
+
+          const total = Number(data.totalClients || (data.state && data.state.totalClients) || 0);
+          const cursor = Number(data.displayCursor || data.cursor || 0);
+
           if (!data.running && !lockUi) {
-            setMessage('Pronto para iniciar.', 'ok');
+            if (manualRunActive && total > 0 && cursor < total) {
+              setMessage(`Atualização pausada em ${cursor}/${total}. Retomando automaticamente...`, 'warn');
+              scheduleAutoResume(data);
+            } else if (total > 0 && cursor >= total) {
+              setMessage('Atualização concluída com sucesso.', 'ok');
+            } else {
+              setMessage('Pronto para iniciar.', 'ok');
+            }
+          } else {
+            clearAutoResumeTimer();
           }
           return data;
         } catch (e) {
@@ -234,6 +301,10 @@ function renderHtmlPage(params) {
       }
 
       async function startUpdate() {
+        clearAutoResumeTimer();
+        autoResumeAttempts = 0;
+        lastAutoResumeCursor = -1;
+        manualRunActive = true;
         lockUi = true;
         startBtn.disabled = true;
         setMessage('Iniciando atualização...', 'warn');
@@ -290,6 +361,9 @@ function renderHtmlPage(params) {
       refreshBtn.addEventListener('click', fetchStatus);
 
       applyState(initialState);
+      if (initialState && initialState.running) {
+        manualRunActive = true;
+      }
       fetchStatus();
       setInterval(fetchStatus, 2000);
     })();
