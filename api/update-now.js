@@ -156,6 +156,7 @@ function renderHtmlPage(params) {
       const force = ${JSON.stringify(force)};
       const reset = ${JSON.stringify(reset)};
       const databaseOnly = ${JSON.stringify(databaseOnly)};
+      const maxMs = ${JSON.stringify(String(params && params.maxMs ? String(params.maxMs) : String(process.env.CRON_MAX_RUNTIME_MS || 240000)))};
 
       const startBtn = document.getElementById('startBtn');
       const refreshBtn = document.getElementById('refreshBtn');
@@ -329,7 +330,8 @@ function renderHtmlPage(params) {
             force: forceRestart ? '1' : force,
             reset,
             databaseOnly,
-            owner: ownerId
+            owner: ownerId,
+            maxMs
           }).toString();
 
           const res = await fetch('/api/update-now?' + query, {
@@ -420,7 +422,12 @@ module.exports = async (req, res) => {
         }, 409);
       }
 
-      const maxMs = Math.max(10000, Number(process.env.CRON_MAX_RUNTIME_MS || 25000));
+      const maxMsParam = req.query?.maxMs || getQueryValue(req, 'maxMs');
+      const parsedMax = Number(maxMsParam);
+      const maxMs = Number.isFinite(parsedMax) && parsedMax >= 10000
+        ? Math.max(10000, parsedMax)
+        : Math.max(10000, Number(process.env.CRON_MAX_RUNTIME_MS || 25000));
+
       const result = await runFullUpdateJob({
         batchSize,
         maxMs,
@@ -492,6 +499,7 @@ module.exports = async (req, res) => {
       force,
       resetCursor,
       databaseOnly,
+      maxMs: Number(process.env.CRON_MAX_RUNTIME_MS || 240000),
       initialState: {
         running: active.running,
         stage: active && active.state ? active.state.stage : 'idle',
