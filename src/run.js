@@ -461,6 +461,8 @@ async function run(options = {}) {
     cursor = 0;
   }
 
+  console.log(`[init] totalClientes=${totalClientes}, cursor=${cursor}, ownsJobControl=${ownsJobControl}`);
+
   try {
     await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
       totalClients: totalClientes,
@@ -473,6 +475,8 @@ async function run(options = {}) {
   }
 
   const batchClientes = clientes.slice(cursor, cursor + batchSize);
+
+  console.log(`[batch] cursor=${cursor}, batchSize=${batchSize}, batchClientes.length=${batchClientes.length}, totalClientes=${totalClientes}`);
 
   if (cursor === 0) {
     await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
@@ -583,6 +587,8 @@ async function run(options = {}) {
   const nextCursor = cursor + actualProcessed;
   const finished = nextCursor >= totalClientes;
 
+  console.log(`[batch-end] cursor=${cursor}, actualProcessed=${actualProcessed}, nextCursor=${nextCursor}, totalClientes=${totalClientes}, finished=${finished}, validBatchRows.length=${validBatchRows.length}, batchRows.length=${batchRows.length}`);
+
   try {
     await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
       stage: finished ? 'database_complete' : 'database',
@@ -590,7 +596,7 @@ async function run(options = {}) {
       totalClients: totalClientes,
       lastAction: finished ? 'database_complete' : 'database_progress'
     });
-    console.log('[diagnostic] touched job state', { jobId: jobControl.jobId, generation: jobControl.generation, nextCursor });
+    console.log('[diagnostic] touched job state', { jobId: jobControl.jobId, generation: jobControl.generation, nextCursor, finished });
   } catch (e) {
     if (e && e.code === 'JOB_INTERRUPTED') throw e;
     console.warn('[run] touchJobState after batch failed (non-fatal):', e && e.message);
