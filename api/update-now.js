@@ -492,6 +492,7 @@ function renderHtmlPage(params) {
       let lastStableCursor = 0;
       let lastStableTotal = 0;
       let lastStableStage = 'idle';
+      let closeWindowTimer = null;
 
       // ==================== ESTADO DO PROGRESSO ====================
       let currentState = {
@@ -544,6 +545,17 @@ function renderHtmlPage(params) {
           clearTimeout(autoResumeTimer);
           autoResumeTimer = null;
         }
+      }
+
+      function scheduleWindowClose() {
+        if (closeWindowTimer) {
+          clearTimeout(closeWindowTimer);
+        }
+        closeWindowTimer = setTimeout(() => {
+          if (window.opener) {
+            window.close();
+          }
+        }, 5000);
       }
 
       // ==================== ATUALIZAR UI ====================
@@ -713,8 +725,9 @@ function renderHtmlPage(params) {
               scheduleAutoResume(data);
             } else if (total > 0 && cursor >= total) {
               manualRunActive = false;
-              showMessage('Atualização concluída com sucesso!', 'success');
+              showMessage('Atualização concluída com sucesso! Fechando em 5 segundos...', 'success');
               clearAutoResumeTimer();
+              scheduleWindowClose();
             } else {
               hideMessage();
               clearAutoResumeTimer();
@@ -963,5 +976,6 @@ module.exports = async (req, res) => {
     return sendHtml(res, `<h1>500 - Erro</h1><p>${error && error.message ? error.message : 'Erro ao carregar página'}</p>`, 500);
   }
 };
+
 
 
