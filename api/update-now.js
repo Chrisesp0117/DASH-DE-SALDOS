@@ -1,4 +1,4 @@
-require('dotenv').config({ path: '.env' });
+﻿require('dotenv').config({ path: '.env' });
 
 const { runFullUpdateJob, triggerNextCycle } = require('../src/core/serverlessJobs');
 const { getSheets } = require('../src/services/sheets');
@@ -85,6 +85,7 @@ function renderHtmlPage(params) {
   const force = params.force ? '1' : '0';
   const reset = params.resetCursor ? '1' : '0';
   const databaseOnly = params.databaseOnly ? '1' : '0';
+  const maxMs = Number(params.maxMs || process.env.CRON_MAX_RUNTIME_MS || 240000);
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -93,88 +94,447 @@ function renderHtmlPage(params) {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Atualização de Saldos</title>
   <style>
-    :root{--bg:#f4f7fb;--card:#fff;--ink:#162236;--muted:#61708a;--line:#e5ebf3;--primary:#2563eb;--success:#16a34a;--warn:#d97706;--error:#dc2626}
-    *{box-sizing:border-box}
-    body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
-    .wrap{max-width:760px;margin:24px auto;padding:0 14px}
-    .card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 8px 24px rgba(15,23,42,.06);padding:18px}
-    .head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
-    h1{font-size:20px;line-height:1.2;margin:0}
-    .pill{font-size:12px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:#f8fbff}
-    .pill.running{color:#7c2d12;background:#fffbeb;border-color:#fed7aa}
-    .pill.idle{color:#065f46;background:#ecfdf5;border-color:#bbf7d0}
-    .meta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:12px}
-    .kpi{border:1px solid var(--line);border-radius:10px;padding:10px;background:#fcfdff}
-    .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
-    .v{font-size:18px;font-weight:700;margin-top:2px}
-    .bar{height:10px;background:#edf2f8;border-radius:999px;overflow:hidden;border:1px solid #e2e8f0}
-    .fill{height:100%;width:0;background:linear-gradient(90deg,#2563eb,#10b981);transition:width .25s ease}
-    .msg{margin-top:10px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);font-size:13px;color:#334155;background:#f8fafc;min-height:38px}
-    .msg.error{color:#991b1b;background:#fef2f2;border-color:#fecaca}
-    .msg.warn{color:#92400e;background:#fffbeb;border-color:#fed7aa}
-    .msg.ok{color:#065f46;background:#ecfdf5;border-color:#bbf7d0}
-    .actions{display:flex;gap:10px;margin-top:14px}
-    button{border:0;border-radius:10px;padding:10px 14px;background:var(--primary);color:#fff;font-weight:600;cursor:pointer}
-    button[disabled]{opacity:.55;cursor:not-allowed}
-    .ghost{background:#0f172a0d;color:#1e293b}
-    .foot{margin-top:10px;font-size:12px;color:var(--muted)}
-    @media (max-width:640px){.meta{grid-template-columns:1fr 1fr}.wrap{margin:14px auto}}
+    :root {
+      --bg: #f0f4f9;
+      --card: #ffffff;
+      --ink: #1a202c;
+      --muted: #718096;
+      --line: #e2e8f0;
+      --primary: #3b82f6;
+      --primary-dark: #1d4ed8;
+      --success: #10b981;
+      --warn: #f59e0b;
+      --error: #ef4444;
+      --info: #06b6d4;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: linear-gradient(135deg, var(--bg) 0%, #e8f1f8 100%);
+      color: var(--ink);
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 700px;
+      margin: 0 auto;
+      padding: 20px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .card {
+      background: var(--card);
+      border-radius: 16px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+      padding: 32px;
+      position: relative;
+    }
+    .header {
+      margin-bottom: 32px;
+      text-align: center;
+    }
+    .title {
+      font-size: 28px;
+      font-weight: 700;
+      margin: 0 0 8px;
+      color: var(--ink);
+    }
+    .subtitle {
+      font-size: 14px;
+      color: var(--muted);
+      margin: 0;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-top: 12px;
+      transition: all 0.3s ease;
+    }
+    .status-badge.idle {
+      background: #e0f2fe;
+      color: #0369a1;
+    }
+    .status-badge.running {
+      background: #fef3c7;
+      color: #92400e;
+      animation: pulse 2s infinite;
+    }
+    .status-badge.completed {
+      background: #d1fae5;
+      color: #065f46;
+    }
+    .status-badge.error {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+    .progress-section {
+      margin: 32px 0;
+    }
+    .progress-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 12px;
+    }
+    .progress-label {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+    .progress-info {
+      display: flex;
+      gap: 16px;
+      font-size: 12px;
+    }
+    .progress-stat {
+      color: var(--muted);
+    }
+    .progress-stat strong {
+      color: var(--ink);
+      font-weight: 700;
+    }
+    .progress-bar {
+      position: relative;
+      height: 8px;
+      background: var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--primary) 0%, var(--primary-dark) 100%);
+      transition: width 0.3s ease;
+      border-radius: 10px;
+      position: relative;
+    }
+    .progress-fill::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+      animation: shimmer 2s infinite;
+    }
+    @keyframes shimmer {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
+    .progress-percent {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--primary);
+      margin-top: 4px;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .stat-box {
+      background: var(--bg);
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      text-align: center;
+    }
+    .stat-label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .stat-value {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .stat-value.accent {
+      color: var(--primary);
+    }
+    .message-box {
+      background: var(--bg);
+      border-left: 4px solid var(--info);
+      padding: 14px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      color: var(--ink);
+      margin: 20px 0;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .message-box.error {
+      border-left-color: var(--error);
+      background: #fef2f2;
+      color: #7f1d1d;
+    }
+    .message-box.success {
+      border-left-color: var(--success);
+      background: #f0fdf4;
+      color: #065f46;
+    }
+    .message-box.warn {
+      border-left-color: var(--warn);
+      background: #fffbeb;
+      color: #92400e;
+    }
+    .message-icon {
+      flex-shrink: 0;
+      width: 18px;
+      height: 18px;
+      margin-top: 1px;
+    }
+    .message-text {
+      flex: 1;
+      line-height: 1.5;
+    }
+    .actions {
+      display: flex;
+      gap: 10px;
+      margin: 28px 0 0;
+      flex-wrap: wrap;
+    }
+    button {
+      flex: 1;
+      min-width: 140px;
+      padding: 12px 16px;
+      border: 0;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    button:hover:not([disabled]) {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+    button:active:not([disabled]) {
+      transform: translateY(0);
+    }
+    button[disabled] {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+      color: white;
+    }
+    .btn-secondary {
+      background: var(--bg);
+      color: var(--ink);
+      border: 1.5px solid var(--line);
+    }
+    .btn-secondary:hover:not([disabled]) {
+      border-color: var(--primary);
+      background: var(--primary);
+      color: white;
+    }
+    .btn-danger {
+      background: var(--error);
+      color: white;
+    }
+    .btn-danger:hover:not([disabled]) {
+      background: #dc2626;
+    }
+    .footer {
+      margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px solid var(--line);
+      text-align: center;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 50%;
+      border-top-color: white;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    @media (max-width: 600px) {
+      .container {
+        padding: 16px;
+      }
+      .card {
+        padding: 24px;
+      }
+      .title {
+        font-size: 24px;
+      }
+      .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      button {
+        min-width: 100px;
+      }
+    }
   </style>
 </head>
 <body>
-  <div class="wrap">
+  <div class="container">
     <div class="card">
-      <div class="head">
-        <h1>Atualização de Saldos</h1>
-        <span id="statusPill" class="pill idle">Sem atualização ativa</span>
+      <div class="header">
+        <h1 class="title">Atualização de Saldos</h1>
+        <p class="subtitle">Sincronizar dados com Google Sheets</p>
+        <div class="status-badge idle" id="statusBadge">Aguardando</div>
       </div>
 
-      <div class="meta">
-        <div class="kpi"><div class="k">Progresso</div><div id="progressText" class="v">0%</div></div>
-        <div class="kpi"><div class="k">Cursor</div><div id="cursorText" class="v">0/0</div></div>
-        <div class="kpi"><div class="k">Etapa</div><div id="stageText" class="v">idle</div></div>
+      <div class="progress-section">
+        <div class="progress-header">
+          <span class="progress-label">Andamento</span>
+          <div class="progress-info">
+            <span class="progress-stat">Etapa: <strong id="stageName">Inativo</strong></span>
+          </div>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+        </div>
+        <div class="progress-percent" id="progressPercent">0%</div>
       </div>
 
-      <div class="bar"><div id="progressFill" class="fill"></div></div>
-      <div id="messageBox" class="msg">Pronto para iniciar.</div>
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-label">Registros</div>
+          <div class="stat-value accent" id="cursorDisplay">0</div>
+          <div class="stat-label" style="font-size: 10px; margin-top: 6px;" id="totalDisplay">de 0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Tempo Decorrido</div>
+          <div class="stat-value" id="elapsedTime">0s</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Velocidade</div>
+          <div class="stat-value" id="throughput">—</div>
+        </div>
+      </div>
+
+      <div id="messageBox" class="message-box" style="display: none;">
+        <div class="message-icon">ℹ️</div>
+        <div class="message-text" id="messageText">Pronto para iniciar</div>
+      </div>
 
       <div class="actions">
-        <button id="startBtn" type="button">Iniciar atualização</button>
-        <button id="refreshBtn" class="ghost" type="button">Atualizar status</button>
-        <button id="forceBtn" class="ghost" type="button">Forçar retomada</button>
+        <button id="startBtn" class="btn-primary">
+          <span id="startBtnText">Iniciar Atualização</span>
+        </button>
+        <button id="refreshBtn" class="btn-secondary">Atualizar Status</button>
+        <button id="forceBtn" class="btn-danger" style="display: none;">Forçar Retomada</button>
       </div>
 
-      <div class="foot">Página multiusuário: detecta execução ativa e bloqueia novos disparos automaticamente.</div>
+      <div class="footer">
+        Interface multiusuário • Bloqueio automático durante atualização em andamento
+      </div>
     </div>
   </div>
 
   <script>
     (() => {
+      // ==================== INICIALIZAÇÃO ====================
       const initialState = ${initialStateJson};
       const secret = ${JSON.stringify(secret)};
       const batchSize = ${JSON.stringify(String(batchSize))};
       const force = ${JSON.stringify(force)};
       const reset = ${JSON.stringify(reset)};
       const databaseOnly = ${JSON.stringify(databaseOnly)};
-      const maxMs = ${JSON.stringify(String(params && params.maxMs ? String(params.maxMs) : String(process.env.CRON_MAX_RUNTIME_MS || 240000)))};
+      const maxMsParam = ${JSON.stringify(String(maxMs))};
 
+      // ==================== ELEMENTOS DOM ====================
       const startBtn = document.getElementById('startBtn');
       const refreshBtn = document.getElementById('refreshBtn');
       const forceBtn = document.getElementById('forceBtn');
-      const statusPill = document.getElementById('statusPill');
+      const statusBadge = document.getElementById('statusBadge');
       const messageBox = document.getElementById('messageBox');
+      const messageText = document.getElementById('messageText');
       const progressFill = document.getElementById('progressFill');
-      const progressText = document.getElementById('progressText');
-      const cursorText = document.getElementById('cursorText');
-      const stageText = document.getElementById('stageText');
+      const progressPercent = document.getElementById('progressPercent');
+      const stageName = document.getElementById('stageName');
+      const cursorDisplay = document.getElementById('cursorDisplay');
+      const totalDisplay = document.getElementById('totalDisplay');
+      const elapsedTime = document.getElementById('elapsedTime');
+      const throughput = document.getElementById('throughput');
+      const startBtnText = document.getElementById('startBtnText');
 
-      let lockUi = false;
-      const ownerId = 'ui|' + Math.random().toString(36).slice(2, 10) + '|' + Date.now().toString(36);
-      let lastStartedByMe = false;
+      // ==================== ESTADO ====================
+      let ownerId = 'ui|' + Math.random().toString(36).slice(2, 10) + '|' + Date.now().toString(36);
       let manualRunActive = false;
       let autoResumeTimer = null;
       let autoResumeAttempts = 0;
       let lastAutoResumeCursor = -1;
+      let lockUi = false;
+      let updateStartTime = 0;
+
+      // ==================== ESTADO DO PROGRESSO ====================
+      let currentState = {
+        running: false,
+        cursor: 0,
+        totalClients: 0,
+        stage: 'idle',
+        displayCursor: 0
+      };
+
+      // ==================== UTILITÁRIOS ====================
+      function getStageLabel(stage) {
+        const labels = {
+          idle: 'Inativo',
+          database: 'Processando Base de Dados',
+          database_complete: 'Base Processada',
+          dashboards: 'Atualizando Painéis',
+          done: 'Concluído',
+          supervisor: 'Processando Supervisor'
+        };
+        return labels[stage] || stage;
+      }
+
+      function formatTime(seconds) {
+        if (seconds < 60) return Math.round(seconds) + 's';
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.round(seconds % 60);
+        return mins + 'm ' + secs + 's';
+      }
+
+      function formatThroughput(cursor, totalSeconds) {
+        if (totalSeconds < 1 || cursor === 0) return '—';
+        const rps = cursor / totalSeconds;
+        if (rps < 1) return Math.round(rps * 1000) / 1000 + '/s';
+        return Math.round(rps * 10) / 10 + '/s';
+      }
+
+      function showMessage(text, type = 'info') {
+        messageBox.className = 'message-box ' + type;
+        messageText.textContent = text;
+        messageBox.style.display = 'flex';
+      }
+
+      function hideMessage() {
+        messageBox.style.display = 'none';
+      }
 
       function clearAutoResumeTimer() {
         if (autoResumeTimer) {
@@ -183,21 +543,60 @@ function renderHtmlPage(params) {
         }
       }
 
-      function scheduleAutoResume(payload) {
-        const running = !!(payload && payload.running);
-        const total = Number((payload && payload.totalClients) || (payload && payload.state && payload.state.totalClients) || 0);
-        const cursor = Number((payload && payload.displayCursor) || (payload && payload.cursor) || 0);
+      // ==================== ATUALIZAR UI ====================
+      function updateProgressDisplay() {
+        const total = currentState.totalClients || 0;
+        const cursor = currentState.displayCursor || 0;
+        const pct = total > 0 ? Math.min(100, Math.max(0, Math.round((cursor / total) * 100))) : 0;
 
-        console.log('[AUTO-RESUME] Check: running=' + running + ', cursor=' + cursor + ', total=' + total + ', attempts=' + autoResumeAttempts + ', manualRunActive=' + manualRunActive);
+        progressFill.style.width = pct + '%';
+        progressPercent.textContent = pct + '%';
+        cursorDisplay.textContent = cursor;
+        totalDisplay.textContent = 'de ' + total;
+        stageName.textContent = getStageLabel(currentState.stage);
+
+        // Atualizar tempo decorrido
+        if (updateStartTime > 0) {
+          const elapsed = (Date.now() - updateStartTime) / 1000;
+          elapsedTime.textContent = formatTime(elapsed);
+          throughput.textContent = formatThroughput(cursor, elapsed);
+        }
+      }
+
+      function updateStatusBadge() {
+        statusBadge.className = 'status-badge ' + (currentState.running ? 'running' : currentState.stage === 'done' ? 'completed' : 'idle');
+        statusBadge.textContent = currentState.running ? 'Atualizando...' : (currentState.stage === 'done' ? 'Concluído' : 'Aguardando');
+      }
+
+      function updateButtonStates() {
+        const isIncomplete = currentState.totalClients > 0 && currentState.displayCursor < currentState.totalClients;
+        const shouldKeepStartDisabled = manualRunActive && isIncomplete;
+
+        startBtn.disabled = currentState.running || lockUi || shouldKeepStartDisabled;
+        forceBtn.style.display = currentState.staleByHeartbeat ? 'flex' : 'none';
+        forceBtn.disabled = !currentState.staleByHeartbeat || lockUi;
+
+        if (currentState.running) {
+          startBtnText.textContent = 'Atualizando...';
+        } else if (shouldKeepStartDisabled) {
+          startBtnText.textContent = 'Retomando...';
+        } else {
+          startBtnText.textContent = 'Iniciar Atualização';
+        }
+      }
+
+      // ==================== SCHEDULE AUTO-RESUME ====================
+      function scheduleAutoResume(payload) {
+        const running = !!payload.running;
+        const total = currentState.totalClients || 0;
+        const cursor = currentState.displayCursor || 0;
 
         if (cursor > lastAutoResumeCursor) {
-          console.log('[AUTO-RESUME] Cursor advanced from ' + lastAutoResumeCursor + ' to ' + cursor);
           lastAutoResumeCursor = cursor;
           autoResumeAttempts = 0;
         }
 
         if (running || lockUi || !manualRunActive || total <= 0 || cursor >= total) {
-          console.log('[AUTO-RESUME] Conditions not met to schedule: running=' + running + ', lockUi=' + lockUi + ', manualRunActive=' + manualRunActive + ', total=' + total + ', cursor=' + cursor);
           clearAutoResumeTimer();
           return;
         }
@@ -205,80 +604,29 @@ function renderHtmlPage(params) {
         if (autoResumeAttempts >= 8) {
           clearAutoResumeTimer();
           manualRunActive = false;
-          setMessage('A atualização pausou várias vezes no mesmo ponto. Tente atualizar novamente.', 'error');
-          console.log('[AUTO-RESUME] Max attempts reached, giving up');
+          showMessage('A atualização pausou várias vezes. Revise os logs e tente novamente.', 'error');
+          updateButtonStates();
           return;
         }
 
         if (autoResumeTimer) {
-          console.log('[AUTO-RESUME] Timer already scheduled');
           return;
         }
 
-        console.log('[AUTO-RESUME] Scheduling auto-resume in 2.5s (attempt ' + (autoResumeAttempts + 1) + '/8)');
         autoResumeTimer = setTimeout(async () => {
           autoResumeTimer = null;
           autoResumeAttempts += 1;
-          console.log('[AUTO-RESUME] Attempting to resume (attempt ' + autoResumeAttempts + '/8)');
 
           if (lockUi || !manualRunActive) {
-            console.log('[AUTO-RESUME] Cancelled: lockUi=' + lockUi + ', manualRunActive=' + manualRunActive);
             return;
           }
 
-          setMessage('A atualização pausou no meio do caminho. Retomando automaticamente (tentativa ' + autoResumeAttempts + '/8)...', 'warn');
+          showMessage('Retomando atualização (tentativa ' + autoResumeAttempts + '/8)...', 'warn');
           await startUpdate(true);
-        }, 2500);
+        }, 1500);
       }
 
-      function setMessage(text, type) {
-        messageBox.textContent = text;
-        messageBox.className = 'msg' + (type ? ' ' + type : '');
-      }
-
-      function applyState(payload) {
-        const running = !!payload.running;
-        const total = Number(payload.totalClients || (payload.state && payload.state.totalClients) || 0);
-        const cursor = Number(payload.displayCursor || payload.cursor || 0);
-        const stage = String(payload.stage || (payload.state && payload.state.stage) || 'idle');
-        const owner = String((payload.state && payload.state.owner) || '');
-        const isMine = owner && owner === ownerId;
-        const staleByHeartbeat = !!payload.staleByHeartbeat;
-        const heartbeatAgeMs = Number(payload.heartbeatAgeMs || 0);
-        const pct = total > 0 ? Math.min(100, Math.max(0, Math.round((cursor / total) * 100))) : 0;
-
-        progressFill.style.width = pct + '%';
-        progressText.textContent = pct + '%';
-        cursorText.textContent = cursor + '/' + total;
-        stageText.textContent = stage;
-
-        if (running) {
-          statusPill.textContent = 'Atualização em andamento';
-          statusPill.className = 'pill running';
-          if (!lockUi) {
-            if (staleByHeartbeat) {
-              setMessage('⚠️ Possível travamento detectado. Heartbeat há ' + Math.round(heartbeatAgeMs / 1000) + 's.', 'error');
-            } else if (isMine || lastStartedByMe) {
-              setMessage('Atualização em andamento (iniciada por você).', 'warn');
-            } else {
-              setMessage('Atualização em andamento por outro usuário/processo. Ação bloqueada.', 'warn');
-            }
-          }
-        } else {
-          statusPill.textContent = 'Sem atualização ativa';
-          statusPill.className = 'pill idle';
-
-          if (total > 0 && cursor >= total) {
-            manualRunActive = false;
-            lastStartedByMe = false;
-          }
-        }
-
-        // Disable start button if: job running, or UI locked, or manual run is active (auto-resuming)
-        startBtn.disabled = running || lockUi || (manualRunActive && total > 0 && cursor < total);
-        forceBtn.disabled = !staleByHeartbeat || lockUi;
-      }
-
+      // ==================== FETCH STATUS ====================
       async function fetchStatus() {
         try {
           const res = await fetch('/api/update-status', {
@@ -291,62 +639,68 @@ function renderHtmlPage(params) {
           });
           const data = await res.json();
           if (!data || data.ok === false) {
-            setMessage((data && data.error) ? data.error : 'Falha ao ler status.', 'error');
+            showMessage('Erro ao consultar status: ' + (data?.error || 'desconhecido'), 'error');
             return null;
           }
-          applyState(data);
 
-          const total = Number(data.totalClients || (data.state && data.state.totalClients) || 0);
-          const cursor = Number(data.displayCursor || data.cursor || 0);
-          const running = !!data.running;
+          // Atualizar estado
+          currentState = {
+            running: !!data.running,
+            cursor: Number(data.cursor || 0),
+            displayCursor: Number(data.displayCursor || data.cursor || 0),
+            totalClients: Number(data.totalClients || 0),
+            stage: String(data.stage || 'idle'),
+            staleByHeartbeat: !!data.staleByHeartbeat,
+            heartbeatAgeMs: Number(data.heartbeatAgeMs || 0)
+          };
 
-          console.log('[FETCH-STATUS] running=' + running + ', cursor=' + cursor + ', total=' + total + ', manualRunActive=' + manualRunActive + ', lockUi=' + lockUi);
+          updateProgressDisplay();
+          updateStatusBadge();
 
-          if (!running && !lockUi && manualRunActive) {
-            // Job not running but manual update was started by this UI
+          // Lógica de auto-resume
+          if (!currentState.running && !lockUi && manualRunActive) {
+            const total = currentState.totalClients || 0;
+            const cursor = currentState.displayCursor || 0;
+
             if (total > 0 && cursor < total) {
-              // Incomplete - should resume
-              console.log('[FETCH-STATUS] Manual update paused at ' + cursor + '/' + total + ' - scheduling auto-resume');
-              setMessage('Atualização pausada em ' + cursor + '/' + total + '. Retomando automaticamente...', 'warn');
+              showMessage('Aguardando retomada automática (' + cursor + '/' + total + ')...', 'warn');
               scheduleAutoResume(data);
             } else if (total > 0 && cursor >= total) {
-              // Complete
               manualRunActive = false;
-              lastStartedByMe = false;
-              setMessage('Atualização concluída com sucesso.', 'ok');
+              showMessage('Atualização concluída com sucesso!', 'success');
               clearAutoResumeTimer();
-              console.log('[FETCH-STATUS] Manual update completed');
             } else {
-              // No data yet or not started
-              setMessage('Pronto para iniciar.', 'ok');
+              hideMessage();
               clearAutoResumeTimer();
             }
-          } else if (running) {
-            // Clear auto-resume if something is actively running
+          } else if (currentState.running) {
             clearAutoResumeTimer();
-            console.log('[FETCH-STATUS] Job is running, cleared auto-resume timer');
           }
+
+          updateButtonStates();
           return data;
         } catch (e) {
-          setMessage('Erro ao consultar status: ' + (e && e.message ? e.message : e), 'error');
-          console.error('[FETCH-STATUS] Error:', e);
+          showMessage('Erro de conexão: ' + (e?.message || e), 'error');
           return null;
         }
       }
 
+      // ==================== START UPDATE ====================
       async function startUpdate(forceRestart = false) {
         clearAutoResumeTimer();
         autoResumeAttempts = 0;
         lastAutoResumeCursor = -1;
         manualRunActive = true;
         lockUi = true;
-        startBtn.disabled = true;
-        setMessage('Iniciando atualização...', 'warn');
+        updateStartTime = Date.now();
+
+        updateButtonStates();
+        showMessage('Iniciando atualização...', 'warn');
 
         try {
           const statusData = await fetchStatus();
           if (statusData && statusData.running) {
-            setMessage('Já existe atualização em andamento. Aguarde concluir.', 'warn');
+            showMessage('Atualização já em andamento. Aguarde...', 'warn');
             lockUi = false;
             return;
           }
@@ -357,7 +711,7 @@ function renderHtmlPage(params) {
             reset,
             databaseOnly,
             owner: ownerId,
-            maxMs
+            maxMs: maxMsParam
           }).toString();
 
           const res = await fetch('/api/update-now?' + query, {
@@ -371,37 +725,49 @@ function renderHtmlPage(params) {
 
           const data = await res.json();
           if (res.status === 409 || (data && data.running)) {
-            setMessage('Já existe atualização em andamento por outro usuário/processo. Aguarde concluir.', 'warn');
+            showMessage('Atualização em andamento por outro usuário/processo.', 'warn');
             await fetchStatus();
+            lockUi = false;
             return;
           }
 
           if (!res.ok || !data || data.ok === false) {
-            setMessage((data && data.error) ? data.error : 'Falha ao iniciar atualização.', 'error');
+            showMessage((data && data.error) ? data.error : 'Falha ao iniciar atualização.', 'error');
+            manualRunActive = false;
+            lockUi = false;
+            updateButtonStates();
             return;
           }
 
-          lastStartedByMe = true;
-          setMessage(data.message || 'Atualização iniciada com sucesso.', 'ok');
+          showMessage('Atualização iniciada. Sincronizando dados...', 'warn');
           await fetchStatus();
         } catch (e) {
-          setMessage('Erro ao iniciar atualização: ' + (e && e.message ? e.message : e), 'error');
+          showMessage('Erro ao iniciar: ' + (e?.message || e), 'error');
+          manualRunActive = false;
         } finally {
           lockUi = false;
-          await fetchStatus();
+          updateButtonStates();
         }
       }
 
-      startBtn.addEventListener('click', startUpdate);
+      // ==================== EVENT LISTENERS ====================
+      startBtn.addEventListener('click', () => startUpdate(false));
       refreshBtn.addEventListener('click', fetchStatus);
       forceBtn.addEventListener('click', () => startUpdate(true));
 
-      applyState(initialState);
-      if (initialState && initialState.running) {
-        manualRunActive = true;
-      }
+      // ==================== INICIALIZAÇÃO ====================
+      currentState = {
+        ...initialState,
+        displayCursor: initialState.cursor
+      };
+      updateProgressDisplay();
+      updateStatusBadge();
+      updateButtonStates();
+      hideMessage();
+
+      // Polling mais agressivo para melhor responsividade
       fetchStatus();
-      setInterval(fetchStatus, 2000);
+      setInterval(fetchStatus, 1500);
     })();
   </script>
 </body>
@@ -503,7 +869,7 @@ module.exports = async (req, res) => {
           : 'Atualização parcial concluída. O restante será processado no próximo ciclo.',
         iterations: result.iterations,
         totalProcessed: result.totalProcessed,
-        refreshInterval: 2000,
+        refreshInterval: 1500,
         continuation
       }, result.finished ? 200 : 202);
     } catch (error) {
