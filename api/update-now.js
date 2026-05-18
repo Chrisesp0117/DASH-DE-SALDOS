@@ -838,9 +838,9 @@ function renderHtmlPage(params) {
       updateButtonStates();
       hideMessage();
 
-      // Polling mais agressivo para melhor responsividade
+      // Polling mais agressivo para melhor responsividade (1s)
       fetchStatus();
-      setInterval(fetchStatus, 1500);
+      setInterval(fetchStatus, 1000);
     })();
   </script>
 </body>
