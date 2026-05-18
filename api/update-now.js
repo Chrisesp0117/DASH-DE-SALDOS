@@ -493,6 +493,11 @@ function renderHtmlPage(params) {
       let lastStableTotal = 0;
       let lastStableStage = 'idle';
       let closeWindowTimer = null;
+      let pollingTimer = null;
+      let pollingIntervalMs = 1000; // cliente polling padrão (ms)
+      let backoffAttempts = 0;
+      const MAX_BACKOFF_ATTEMPTS = 6;
+      const BASE_BACKOFF_MS = 1000;
 
       // ==================== ESTADO DO PROGRESSO ====================
       let currentState = {
@@ -556,6 +561,17 @@ function renderHtmlPage(params) {
             window.close();
           }
         }, 5000);
+      }
+
+      function scheduleNextPoll(delayMs) {
+        if (pollingTimer) {
+          clearTimeout(pollingTimer);
+          pollingTimer = null;
+        }
+        pollingTimer = setTimeout(() => {
+          pollingTimer = null;
+          fetchStatus();
+        }, Math.max(0, Number(delayMs || pollingIntervalMs)));
       }
 
       // ==================== ATUALIZAR UI ====================
@@ -653,9 +669,34 @@ function renderHtmlPage(params) {
             },
             cache: 'no-store'
           });
-          const data = await res.json();
+
+          let data = null;
+          let isQuota = false;
+          if (res.status === 429) {
+            isQuota = true;
+          }
+          try {
+            data = await res.json();
+            if (data && data.error && String(data.error || '').toLowerCase().includes('quota')) {
+              isQuota = true;
+            }
+          } catch (e) {
+            data = null;
+          }
+
+          if (isQuota) {
+            backoffAttempts = Math.min(MAX_BACKOFF_ATTEMPTS, backoffAttempts + 1);
+            const jitter = Math.floor(Math.random() * 500);
+            const delay = Math.min(BASE_BACKOFF_MS * Math.pow(2, backoffAttempts), 60000) + jitter;
+            showMessage('Google Sheets atingiu limite. Retentando em ' + Math.round(delay / 1000) + 's', 'warn');
+            scheduleNextPoll(delay);
+            return null;
+          }
+
           if (!data || data.ok === false) {
             showMessage('Erro ao consultar status: ' + (data?.error || 'desconhecido'), 'error');
+            // schedule normal retry
+            scheduleNextPoll(pollingIntervalMs);
             return null;
           }
 
@@ -738,6 +779,9 @@ function renderHtmlPage(params) {
           }
 
           updateButtonStates();
+          // sucesso: resetar backoff e agendar próxima consulta
+          backoffAttempts = 0;
+          scheduleNextPoll(pollingIntervalMs);
           return data;
         } catch (e) {
           showMessage('Erro de conexão: ' + (e?.message || e), 'error');
@@ -838,9 +882,9 @@ function renderHtmlPage(params) {
       updateButtonStates();
       hideMessage();
 
-      // Polling mais agressivo para melhor responsividade (1s)
+      // Polling mais agressivo para melhor responsividade (1s) com backoff
       fetchStatus();
-      setInterval(fetchStatus, 1000);
+      scheduleNextPoll(pollingIntervalMs);
     })();
   </script>
 </body>
