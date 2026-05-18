@@ -329,9 +329,21 @@ async function touchJobState(sheets, spreadsheetId, control, updates = {}) {
   const isHeartbeat = String(updates.lastAction || '').includes('heartbeat');
   const nextLease = Date.now() + leaseMs;
   const nextCursor = Number.isFinite(Number(updates.cursor)) ? Number(updates.cursor) : current.cursor;
-  const nextProgressCursor = Number.isFinite(Number(updates.progressCursor))
-    ? Number(updates.progressCursor)
-    : (Number.isFinite(Number(current.progressCursor)) ? Number(current.progressCursor) : nextCursor);
+  
+  // Se progressCursor é explicitamente passado, usar o novo valor
+  // Se progressCursor é undefined/null/não passado, preservar o anterior
+  let nextProgressCursor;
+  if (updates.hasOwnProperty('progressCursor') && Number.isFinite(Number(updates.progressCursor))) {
+    // progressCursor foi explicitamente passado e é um número válido
+    nextProgressCursor = Number(updates.progressCursor);
+  } else if (!updates.hasOwnProperty('progressCursor') && Number.isFinite(Number(current.progressCursor))) {
+    // progressCursor não foi passado, preservar o anterior
+    nextProgressCursor = Number(current.progressCursor);
+  } else {
+    // Fallback: usar nextCursor como base
+    nextProgressCursor = nextCursor;
+  }
+  
   const nextTotalClients = Number.isFinite(Number(updates.totalClients))
     ? Number(updates.totalClients)
     : (Number.isFinite(Number(current.totalClients)) ? Number(current.totalClients) : 0);

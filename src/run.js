@@ -464,17 +464,19 @@ async function run(options = {}) {
   try {
     await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
       totalClients: totalClientes,
+      progressCursor: cursor === 0 ? 0 : undefined, // Se iniciando, zera; se retomando, preserva
       stage: cursor === 0 ? 'database' : (jobControl && jobControl.stage) || 'database',
       lastAction: 'set_total_clients'
     });
   } catch (e) {
-    // best-effort telemetry only
+    console.warn('[run] Erro ao definir totalClients:', e && e.message);
   }
 
   const batchClientes = clientes.slice(cursor, cursor + batchSize);
 
   if (cursor === 0) {
     await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
+      totalClients: totalClientes,
       stage: 'database',
       lastAction: 'start_database'
     });
@@ -550,10 +552,13 @@ async function run(options = {}) {
           await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
             stage: 'database',
             progressCursor: item.index + 1,
+            totalClients: totalClientes,
             lastAction: 'progress'
           });
           lastProgressTouchAt = now;
+          console.log(`[progress] progressCursor atualizado para ${item.index + 1}/${totalClientes}`);
         } catch (e) {
+          console.error('[progress-error] Erro ao atualizar progressCursor:', e && e.message);
         }
       }
 
