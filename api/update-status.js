@@ -22,10 +22,16 @@ module.exports = async (req, res) => {
 
     const progressCursor = Number.isFinite(Number(state.progressCursor)) ? Number(state.progressCursor) : 0;
     const storedCursor = Number.isFinite(Number(state.cursor)) ? Number(state.cursor) : 0;
-    // Priorizar progressCursor (atualizações em tempo real) sobre cursor final
-    // Exceto quando totalClients=0 ou ambos são 0 (job não iniciado)
+    const stage = String(state.stage || 'idle');
+    
+    // Priorizar progressCursor durante execução, usar cursor quando finalizado
+    // Se stage === 'done', usar o maior entre cursor e progressCursor para manter progresso
     let cursor = storedCursor;
-    if ((progressCursor > 0 || storedCursor === 0) && totalClients > 0) {
+    if (stage === 'done') {
+      // Job finalizado: retornar o maior cursor (geralmente igual após finishJobState)
+      cursor = Math.max(storedCursor, progressCursor);
+    } else if ((progressCursor > 0 || storedCursor === 0) && totalClients > 0) {
+      // Job em execução: usar progressCursor que é atualizado em tempo real
       cursor = Math.max(progressCursor, 0);
     }
 

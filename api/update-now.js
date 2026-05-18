@@ -677,9 +677,10 @@ function renderHtmlPage(params) {
             }
 
             const stableCursorCandidate = Math.max(incomingCursor, incomingStoredCursor, lastStableCursor);
-            currentState.displayCursor = currentState.totalClients > 0 && incomingStage !== 'done'
-              ? stableCursorCandidate
-              : incomingCursor;
+            // Quando stage === 'done', preservar o cursor final (não deixar zerar)
+            currentState.displayCursor = incomingStage === 'done'
+              ? Math.max(incomingCursor, incomingStoredCursor, lastStableCursor)
+              : (currentState.totalClients > 0 ? stableCursorCandidate : incomingCursor);
 
             if (currentState.displayCursor > lastStableCursor) {
               lastStableCursor = currentState.displayCursor;
