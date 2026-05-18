@@ -537,7 +537,9 @@ function renderHtmlPage(params) {
 
       function showMessage(text, type = 'info') {
         messageBox.className = 'message-box ' + type;
-        messageText.textContent = text;
+        // Garantir que o texto seja sempre uma string
+        const safeText = String(text || '').trim();
+        messageText.textContent = safeText || 'Operação em andamento';
         messageBox.style.display = 'flex';
       }
 
@@ -694,7 +696,10 @@ function renderHtmlPage(params) {
           }
 
           if (!data || data.ok === false) {
-            showMessage('Erro ao consultar status: ' + (data?.error || 'desconhecido'), 'error');
+            const errorMsg = typeof data?.error === 'string' 
+              ? data.error 
+              : (data?.error?.message || 'desconhecido');
+            showMessage('Erro ao consultar status: ' + errorMsg, 'error');
             // schedule normal retry
             scheduleNextPoll(pollingIntervalMs);
             return null;
@@ -784,7 +789,7 @@ function renderHtmlPage(params) {
           scheduleNextPoll(pollingIntervalMs);
           return data;
         } catch (e) {
-          showMessage('Erro de conexão: ' + (e?.message || e), 'error');
+          showMessage('Erro de conexão: ' + (typeof e?.message === 'string' ? e.message : String(e)), 'error');
           return null;
         }
       }
@@ -849,7 +854,7 @@ function renderHtmlPage(params) {
           }
 
           if (!res.ok || !data || data.ok === false) {
-            showMessage((data && data.error) ? data.error : 'Falha ao iniciar atualização.', 'error');
+            showMessage('Falha ao iniciar atualização: ' + (typeof data?.error === 'string' ? data.error : (data?.error?.message || 'desconhecido')), 'error');
             manualRunActive = false;
             lockUi = false;
             updateButtonStates();
@@ -859,7 +864,7 @@ function renderHtmlPage(params) {
           showMessage(forceRestart ? 'Retomada iniciada. Sincronizando dados...' : 'Atualização iniciada. Sincronizando dados...', 'warn');
           await fetchStatus();
         } catch (e) {
-          showMessage('Erro ao iniciar: ' + (e?.message || e), 'error');
+            showMessage('Erro ao iniciar: ' + (typeof e?.message === 'string' ? e.message : String(e)), 'error');
           manualRunActive = false;
         } finally {
           lockUi = false;
