@@ -526,23 +526,54 @@ async function run(options = {}) {
     const chunkResults = await Promise.all(chunk.map(async (row, offset) => {
       const batchIndex = start + offset;
       const index = cursor + batchIndex;
-      const values = await processClienteRow(row, {
-        idxCliente,
-        idxPlataforma,
-        idxCustomerId,
-        idxGestor,
-        idxSupervisor,
-        idxRevisao
-      });
       const cliente = (row[idxCliente] || '').trim();
-      return { batchIndex, index, values, cliente };
+      
+      try {
+        const values = await processClienteRow(row, {
+          idxCliente,
+          idxPlataforma,
+          idxCustomerId,
+          idxGestor,
+          idxSupervisor,
+          idxRevisao
+        });
+        return { batchIndex, index, values, cliente, error: null };
+      } catch (error) {
+        console.error(`❌ ERRO ao processar cliente "${cliente}":`, error && error.message);
+        // Retornar linha de erro em vez de falhar o lote inteiro
+        return { 
+          batchIndex, 
+          index, 
+          values: [
+            new Date().toISOString(),
+            cliente,
+            '',
+            '-',
+            '-',
+            '-',
+            '-',
+            '',
+            '',
+            'Erro',
+            `Erro ao processar: ${error && error.message ? error.message : 'desconhecido'}`,
+            new Date().toISOString(),
+            ''
+          ],
+          cliente,
+          error: error && error.message ? error.message : String(error)
+        };
+      }
     }));
 
     chunkResults.sort((a, b) => a.batchIndex - b.batchIndex);
 
     for (const item of chunkResults) {
-      console.log(`${item.cliente} processado`);
-      try { console.log('[diagnostic] processed client', { cliente: item.cliente, index: item.index }); } catch (e) { }
+      if (item.error) {
+        console.warn(`⚠️ Cliente falhado (continuando lote): "${item.cliente}" | erro: ${item.error}`);
+      } else {
+        console.log(`${item.cliente} processado`);
+      }
+      try { console.log('[diagnostic] processed client', { cliente: item.cliente, index: item.index, error: item.error || null }); } catch (e) { }
 
       if (onProgress) {
         await onProgress(item.index + 1, totalClientes, item.cliente);
