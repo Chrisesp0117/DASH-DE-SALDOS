@@ -95,13 +95,13 @@ function renderHtmlPage(params) {
   <title>Atualização de Saldos</title>
   <style>
     :root {
-      --bg: #f0f4f9;
-      --card: #ffffff;
-      --ink: #1a202c;
-      --muted: #718096;
-      --line: #e2e8f0;
-      --primary: #3b82f6;
-      --primary-dark: #1d4ed8;
+      --bg: #0f0f0f;
+      --card: #1a1a1a;
+      --ink: #ffffff;
+      --muted: #a0aec0;
+      --line: #333333;
+      --primary: #ff9500;
+      --primary-dark: #e68400;
       --success: #10b981;
       --warn: #f59e0b;
       --error: #ef4444;
@@ -114,7 +114,7 @@ function renderHtmlPage(params) {
       margin: 0;
       padding: 0;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      background: linear-gradient(135deg, var(--bg) 0%, #e8f1f8 100%);
+      background: linear-gradient(135deg, #0f0f0f 0%, #1a1a1a 100%);
       color: var(--ink);
       min-height: 100vh;
     }
@@ -282,13 +282,13 @@ function renderHtmlPage(params) {
     }
     .message-box.error {
       border-left-color: var(--error);
-      background: #fef2f2;
-      color: #7f1d1d;
+      background: #3d1515;
+      color: #fca5a5;
     }
     .message-box.success {
       border-left-color: var(--success);
-      background: #f0fdf4;
-      color: #065f46;
+      background: #143d2f;
+      color: #a7f3d0;
     }
     .message-box.warn {
       border-left-color: var(--warn);
