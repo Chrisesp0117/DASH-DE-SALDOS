@@ -188,12 +188,16 @@ function renderHtmlPage(params) {
         const total = Number((payload && payload.totalClients) || (payload && payload.state && payload.state.totalClients) || 0);
         const cursor = Number((payload && payload.displayCursor) || (payload && payload.cursor) || 0);
 
+        console.log('[AUTO-RESUME] Check: running=' + running + ', cursor=' + cursor + ', total=' + total + ', attempts=' + autoResumeAttempts + ', manualRunActive=' + manualRunActive);
+
         if (cursor > lastAutoResumeCursor) {
+          console.log('[AUTO-RESUME] Cursor advanced from ' + lastAutoResumeCursor + ' to ' + cursor);
           lastAutoResumeCursor = cursor;
           autoResumeAttempts = 0;
         }
 
         if (running || lockUi || !manualRunActive || total <= 0 || cursor >= total) {
+          console.log('[AUTO-RESUME] Conditions not met to schedule: running=' + running + ', lockUi=' + lockUi + ', manualRunActive=' + manualRunActive + ', total=' + total + ', cursor=' + cursor);
           clearAutoResumeTimer();
           return;
         }
@@ -202,22 +206,27 @@ function renderHtmlPage(params) {
           clearAutoResumeTimer();
           manualRunActive = false;
           setMessage('A atualização pausou várias vezes no mesmo ponto. Tente atualizar novamente.', 'error');
+          console.log('[AUTO-RESUME] Max attempts reached, giving up');
           return;
         }
 
         if (autoResumeTimer) {
+          console.log('[AUTO-RESUME] Timer already scheduled');
           return;
         }
 
+        console.log('[AUTO-RESUME] Scheduling auto-resume in 2.5s (attempt ' + (autoResumeAttempts + 1) + '/8)');
         autoResumeTimer = setTimeout(async () => {
           autoResumeTimer = null;
           autoResumeAttempts += 1;
+          console.log('[AUTO-RESUME] Attempting to resume (attempt ' + autoResumeAttempts + '/8)');
 
           if (lockUi || !manualRunActive) {
+            console.log('[AUTO-RESUME] Cancelled: lockUi=' + lockUi + ', manualRunActive=' + manualRunActive);
             return;
           }
 
-          setMessage('A atualização pausou no meio do caminho. Retomando automaticamente...', 'warn');
+          setMessage('A atualização pausou no meio do caminho. Retomando automaticamente (tentativa ' + autoResumeAttempts + '/8)...', 'warn');
           await startUpdate(true);
         }, 2500);
       }
@@ -265,7 +274,8 @@ function renderHtmlPage(params) {
           }
         }
 
-        startBtn.disabled = running || lockUi;
+        // Disable start button if: job running, or UI locked, or manual run is active (auto-resuming)
+        startBtn.disabled = running || lockUi || (manualRunActive && total > 0 && cursor < total);
         forceBtn.disabled = !staleByHeartbeat || lockUi;
       }
 
@@ -288,22 +298,38 @@ function renderHtmlPage(params) {
 
           const total = Number(data.totalClients || (data.state && data.state.totalClients) || 0);
           const cursor = Number(data.displayCursor || data.cursor || 0);
+          const running = !!data.running;
 
-          if (!data.running && !lockUi) {
-            if (manualRunActive && total > 0 && cursor < total) {
+          console.log('[FETCH-STATUS] running=' + running + ', cursor=' + cursor + ', total=' + total + ', manualRunActive=' + manualRunActive + ', lockUi=' + lockUi);
+
+          if (!running && !lockUi && manualRunActive) {
+            // Job not running but manual update was started by this UI
+            if (total > 0 && cursor < total) {
+              // Incomplete - should resume
+              console.log('[FETCH-STATUS] Manual update paused at ' + cursor + '/' + total + ' - scheduling auto-resume');
               setMessage('Atualização pausada em ' + cursor + '/' + total + '. Retomando automaticamente...', 'warn');
               scheduleAutoResume(data);
             } else if (total > 0 && cursor >= total) {
+              // Complete
+              manualRunActive = false;
+              lastStartedByMe = false;
               setMessage('Atualização concluída com sucesso.', 'ok');
+              clearAutoResumeTimer();
+              console.log('[FETCH-STATUS] Manual update completed');
             } else {
+              // No data yet or not started
               setMessage('Pronto para iniciar.', 'ok');
+              clearAutoResumeTimer();
             }
-          } else {
+          } else if (running) {
+            // Clear auto-resume if something is actively running
             clearAutoResumeTimer();
+            console.log('[FETCH-STATUS] Job is running, cleared auto-resume timer');
           }
           return data;
         } catch (e) {
           setMessage('Erro ao consultar status: ' + (e && e.message ? e.message : e), 'error');
+          console.error('[FETCH-STATUS] Error:', e);
           return null;
         }
       }
