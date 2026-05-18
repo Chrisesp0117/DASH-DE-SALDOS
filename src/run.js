@@ -599,9 +599,8 @@ async function run(options = {}) {
   if (!finished) {
     const batchTime = new Date().toISOString();
     console.log(`Lote concluído | processed=${actualProcessed} | nextCursor=${nextCursor}/${totalClientes} | time=${batchTime}`);
-    if (ownsJobControl) {
-      await releaseJobState(sheets, process.env.SPREADSHEET_ID, jobControl, 'idle');
-    }
+    // NÃO liberar o lock aqui - apenas quem o adquiriu deve liberá-lo
+    // O jobControl foi passado por runFullUpdateJob que cuidará da liberação
     return { ok: true, processed: actualProcessed, total: totalClientes, cursor, nextCursor, finished: false };
   }
 

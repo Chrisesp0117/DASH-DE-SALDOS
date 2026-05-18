@@ -935,7 +935,7 @@ module.exports = async (req, res) => {
       const parsedMax = Number(maxMsParam);
       const maxMs = Number.isFinite(parsedMax) && parsedMax >= 10000
         ? Math.max(10000, parsedMax)
-        : Math.max(10000, Number(process.env.CRON_MAX_RUNTIME_MS || 25000));
+        : Math.max(10000, Number(process.env.CRON_MAX_RUNTIME_MS || 150000));
 
       const result = await runFullUpdateJob({
         batchSize,

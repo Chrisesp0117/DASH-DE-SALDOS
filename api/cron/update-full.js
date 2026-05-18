@@ -32,7 +32,7 @@ module.exports = async (req, res) => {
     const rawBatchSize = req.query?.batchSize || getQueryValue(req && req.url, 'batchSize') || process.env.UPDATE_BATCH_SIZE || 20;
     const batchSize = Math.max(5, Number(rawBatchSize));
     // Leave 30s margin for function cleanup before Vercel timeout (maxDuration: 180)
-    const maxMs = Math.max(10000, Number(process.env.CRON_MAX_RUNTIME_MS || 25000));
+    const maxMs = Math.max(10000, Number(process.env.CRON_MAX_RUNTIME_MS || 150000));
 
     const resetRaw = req.query?.reset || getQueryValue(req && req.url, 'reset');
     const resetCursor = String(resetRaw || '').toLowerCase() === '1' || String(resetRaw || '').toLowerCase() === 'true';
