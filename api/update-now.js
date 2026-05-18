@@ -694,8 +694,11 @@ function renderHtmlPage(params) {
         lockUi = true;
         updateStartTime = Date.now();
 
+        // Preserve previous state during resume
+        const prevState = { ...currentState };
+
         updateButtonStates();
-        showMessage('Iniciando atualização...', 'warn');
+        showMessage(forceRestart ? 'Retomando atualização...' : 'Iniciando atualização...', 'warn');
 
         try {
           const statusData = await fetchStatus();
@@ -703,6 +706,13 @@ function renderHtmlPage(params) {
             showMessage('Atualização já em andamento. Aguarde...', 'warn');
             lockUi = false;
             return;
+          }
+
+          // If resume and cursor went to 0, restore previous cursor
+          if (forceRestart && prevState.displayCursor > 0 && currentState.displayCursor === 0) {
+            currentState.displayCursor = prevState.displayCursor;
+            currentState.totalClients = prevState.totalClients;
+            updateProgressDisplay();
           }
 
           const query = new URLSearchParams({
@@ -739,7 +749,7 @@ function renderHtmlPage(params) {
             return;
           }
 
-          showMessage('Atualização iniciada. Sincronizando dados...', 'warn');
+          showMessage(forceRestart ? 'Retomada iniciada. Sincronizando dados...' : 'Atualização iniciada. Sincronizando dados...', 'warn');
           await fetchStatus();
         } catch (e) {
           showMessage('Erro ao iniciar: ' + (e?.message || e), 'error');
@@ -904,3 +914,4 @@ module.exports = async (req, res) => {
     return sendHtml(res, `<h1>500 - Erro</h1><p>${error && error.message ? error.message : 'Erro ao carregar página'}</p>`, 500);
   }
 };
+
