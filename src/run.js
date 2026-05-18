@@ -193,7 +193,21 @@ async function clearDatabaseTail(sheets, spreadsheetId, totalRows, maxRows = 100
 
 async function readJobCursor(sheets, spreadsheetId) {
   const state = await readJobState(sheets, spreadsheetId);
-  return Number.isFinite(Number(state.cursor)) && Number(state.cursor) >= 0 ? Number(state.cursor) : 0;
+  // Priorizar progressCursor se o job está em execução
+  // progressCursor é atualizado em tempo real durante processamento
+  // cursor é apenas atualizado no final de cada lote
+  const stage = String(state.stage || 'idle');
+  const status = String(state.status || 'idle');
+  const progressCursor = Number.isFinite(Number(state.progressCursor)) && Number(state.progressCursor) >= 0 ? Number(state.progressCursor) : 0;
+  const cursor = Number.isFinite(Number(state.cursor)) && Number(state.cursor) >= 0 ? Number(state.cursor) : 0;
+  
+  // Se job está em execução (status running) ou em pausado (stage paused/database), usar progressCursor
+  // Se job está finalizado, usar cursor
+  if (status === 'running' || (stage !== 'done' && stage !== 'idle')) {
+    return Math.max(progressCursor, cursor);
+  }
+  
+  return cursor;
 }
 
 async function applyDatabaseFormatting(sheets, spreadsheetId, totalRows) {
@@ -548,7 +562,9 @@ async function run(options = {}) {
   }
 
   const firstRowIndex = cursor + 2;
-  const valuesToWrite = batchRows.map(item => item.values);
+  // Filtrar undefined e pegar apenas as linhas que foram realmente processadas
+  const validBatchRows = batchRows.filter(item => item !== undefined);
+  const valuesToWrite = validBatchRows.map(item => item.values);
 
   await batchUpdateValues(sheets, process.env.SPREADSHEET_ID, [
     {
@@ -557,7 +573,9 @@ async function run(options = {}) {
     }
   ]);
 
-  const nextCursor = cursor + batchRows.length;
+  // Usar o número real de linhas processadas, não o tamanho pré-alocado do array
+  const actualProcessed = validBatchRows.length;
+  const nextCursor = cursor + actualProcessed;
   const finished = nextCursor >= totalClientes;
 
   try {
@@ -575,11 +593,11 @@ async function run(options = {}) {
 
   if (!finished) {
     const batchTime = new Date().toISOString();
-    console.log(`Lote concluído | processed=${batchRows.length} | nextCursor=${nextCursor}/${totalClientes} | time=${batchTime}`);
+    console.log(`Lote concluído | processed=${actualProcessed} | nextCursor=${nextCursor}/${totalClientes} | time=${batchTime}`);
     if (ownsJobControl) {
       await releaseJobState(sheets, process.env.SPREADSHEET_ID, jobControl, 'idle');
     }
-    return { ok: true, processed: batchRows.length, total: totalClientes, cursor, nextCursor, finished: false };
+    return { ok: true, processed: actualProcessed, total: totalClientes, cursor, nextCursor, finished: false };
   }
 
   if (!options.jobControl) {
@@ -659,7 +677,7 @@ async function run(options = {}) {
 
   console.log('DATABASE atualizada');
 
-  return { ok: true, processed: batchRows.length, total: totalClientes, cursor, nextCursor: cursor + batchRows.length, finished: true };
+  return { ok: true, processed: actualProcessed, total: totalClientes, cursor, nextCursor: cursor + actualProcessed, finished: true };
 }
 
 module.exports = {

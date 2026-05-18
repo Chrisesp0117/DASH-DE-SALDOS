@@ -235,10 +235,16 @@ async function acquireJobStateLock(sheets, spreadsheetId, options = {}) {
   const resetCursor = options.resetCursor === true;
   const currentlyRunning = String(current.status || '') === 'running' && Number(current.leaseUntil || 0) > now;
   const completedLastRun = String(current.lastAction || '') === 'finish' || String(current.stage || '') === 'done';
-  const shouldResetCursor = resetCursor || completedLastRun;
+  const shouldResetCursor = resetCursor || (completedLastRun && String(options.skipCursorReset || '') !== 'true');
+  // Preservar o maior entre cursor e progressCursor ao retomar job pausado
+  // Isso garante que o progresso feito antes da pausa não seja perdido
   const preservedCursor = Number.isFinite(Number(current.cursor)) && Number(current.cursor) >= 0
     ? Number(current.cursor)
     : 0;
+  const preservedProgressCursor = Number.isFinite(Number(current.progressCursor)) && Number(current.progressCursor) >= 0
+    ? Number(current.progressCursor)
+    : 0;
+  const cursorToPreserve = Math.max(preservedCursor, preservedProgressCursor);
 
   const requestedOwner = String(options.owner || '').trim();
   const owner = requestedOwner ? requestedOwner.slice(0, 120) : await getOwnerId();
@@ -246,7 +252,9 @@ async function acquireJobStateLock(sheets, spreadsheetId, options = {}) {
     status: 'running',
     jobId,
     generation: nextGeneration,
-    cursor: shouldResetCursor ? 0 : preservedCursor,
+    cursor: shouldResetCursor ? 0 : cursorToPreserve,
+    progressCursor: shouldResetCursor ? 0 : preservedProgressCursor,
+    totalClients: shouldResetCursor ? 0 : (Number.isFinite(Number(current.totalClients)) && Number(current.totalClients) >= 0 ? Number(current.totalClients) : 0),
     leaseUntil: now + leaseMs,
     updatedAt: toIsoNow(),
     owner,
@@ -366,13 +374,19 @@ async function finishJobState(sheets, spreadsheetId, control, status = 'idle') {
   const current = await readJobState(sheets, spreadsheetId);
   if (!isSameJobState(current, control)) return;
 
+  // Sincronizar cursor com progressCursor para garantir que o progresso máximo fica gravado
+  const finalProgressCursor = Number.isFinite(Number(current.progressCursor)) && Number(current.progressCursor) >= 0 ? Number(current.progressCursor) : 0;
+  const finalCursor = Number.isFinite(Number(current.cursor)) && Number(current.cursor) >= 0 ? Number(current.cursor) : 0;
+  const finalTotalClients = Number.isFinite(Number(current.totalClients)) && Number(current.totalClients) >= 0 ? Number(current.totalClients) : 0;
+  
   const newState = {
     status,
     jobId: control.jobId,
     generation: control.generation,
-    cursor: Number.isFinite(Number(current.progressCursor)) && Number(current.progressCursor) >= 0 ? Number(current.progressCursor) : (Number.isFinite(Number(current.cursor)) && Number(current.cursor) >= 0 ? Number(current.cursor) : 0),
-    progressCursor: Number.isFinite(Number(current.progressCursor)) && Number(current.progressCursor) >= 0 ? Number(current.progressCursor) : (Number.isFinite(Number(current.cursor)) ? Number(current.cursor) : 0),
-    totalClients: Number.isFinite(Number(current.totalClients)) && Number(current.totalClients) >= 0 ? Number(current.totalClients) : 0,
+    // Sempre usar progressCursor como valor final (foi atualizado mais recentemente durante execução)
+    cursor: Math.max(finalCursor, finalProgressCursor),
+    progressCursor: Math.max(finalCursor, finalProgressCursor),
+    totalClients: finalTotalClients,
     leaseUntil: 0,
     updatedAt: toIsoNow(),
     owner: current.owner || '',
@@ -384,6 +398,7 @@ async function finishJobState(sheets, spreadsheetId, control, status = 'idle') {
     auditPointer: current.auditPointer || 'JOB_HISTORY',
     stage: 'done'
   };
+
 
   await writeJobState(sheets, spreadsheetId, newState);
   await appendJobHistory(sheets, spreadsheetId, {
@@ -403,13 +418,20 @@ async function releaseJobState(sheets, spreadsheetId, control, status = 'idle') 
   const current = await readJobState(sheets, spreadsheetId);
   if (!isSameJobState(current, control)) return;
 
+  // Ao pausar job, preservar o máximo progresso alcançado (ambos cursor e progressCursor)
+  const pausedProgressCursor = Number.isFinite(Number(current.progressCursor)) && Number(current.progressCursor) >= 0 ? Number(current.progressCursor) : 0;
+  const pausedCursor = Number.isFinite(Number(current.cursor)) && Number(current.cursor) >= 0 ? Number(current.cursor) : 0;
+  const maxProgressReached = Math.max(pausedCursor, pausedProgressCursor);
+  const pausedTotalClients = Number.isFinite(Number(current.totalClients)) && Number(current.totalClients) >= 0 ? Number(current.totalClients) : 0;
+  
   const newState = {
     status,
     jobId: control.jobId,
     generation: control.generation,
-    cursor: Number.isFinite(Number(current.progressCursor)) && Number(current.progressCursor) >= 0 ? Number(current.progressCursor) : (Number.isFinite(Number(current.cursor)) && Number(current.cursor) >= 0 ? Number(current.cursor) : 0),
-    progressCursor: Number.isFinite(Number(current.progressCursor)) && Number(current.progressCursor) >= 0 ? Number(current.progressCursor) : (Number.isFinite(Number(current.cursor)) ? Number(current.cursor) : 0),
-    totalClients: Number.isFinite(Number(current.totalClients)) && Number(current.totalClients) >= 0 ? Number(current.totalClients) : 0,
+    // Preservar o progresso máximo ao pausar (será retomado daqui na próxima vez)
+    cursor: maxProgressReached,
+    progressCursor: maxProgressReached,
+    totalClients: pausedTotalClients,
     leaseUntil: 0,
     updatedAt: toIsoNow(),
     owner: current.owner || '',

@@ -23,16 +23,23 @@ module.exports = async (req, res) => {
     const progressCursor = Number.isFinite(Number(state.progressCursor)) ? Number(state.progressCursor) : 0;
     const storedCursor = Number.isFinite(Number(state.cursor)) ? Number(state.cursor) : 0;
     const stage = String(state.stage || 'idle');
+    const status = String(state.status || 'idle');
     
-    // Priorizar progressCursor durante execução, usar cursor quando finalizado
-    // Se stage === 'done', usar o maior entre cursor e progressCursor para manter progresso
+    // Lógica corrigida de priorização de cursor:
+    // 1. Se job está em execução (status='running'), usar progressCursor (atualizado em tempo real)
+    // 2. Se job está pausado ou parou (stage='paused'/'database'), usar maior entre cursor e progressCursor
+    // 3. Se job finalizou (stage='done'), usar cursor (já sincronizado com progressCursor)
+    // 4. Se stage é idle, usar maior entre os dois para segurança
     let cursor = storedCursor;
-    if (stage === 'done') {
-      // Job finalizado: retornar o maior cursor (geralmente igual após finishJobState)
+    if (status === 'running') {
+      // Job em execução: usar progressCursor atualizado em tempo real
+      cursor = Math.max(progressCursor, storedCursor);
+    } else if (stage === 'done') {
+      // Job finalizado: usar cursor (que já recebeu o valor de progressCursor em finishJobState)
       cursor = Math.max(storedCursor, progressCursor);
-    } else if ((progressCursor > 0 || storedCursor === 0) && totalClients > 0) {
-      // Job em execução: usar progressCursor que é atualizado em tempo real
-      cursor = Math.max(progressCursor, 0);
+    } else {
+      // Job pausado ou outro estado: usar maior para segurança
+      cursor = Math.max(storedCursor, progressCursor);
     }
 
     return sendJson(res, {
