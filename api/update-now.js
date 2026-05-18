@@ -489,6 +489,9 @@ function renderHtmlPage(params) {
       let lastAutoResumeCursor = -1;
       let lockUi = false;
       let updateStartTime = 0;
+      let lastStableCursor = 0;
+      let lastStableTotal = 0;
+      let lastStableStage = 'idle';
 
       // ==================== ESTADO DO PROGRESSO ====================
       let currentState = {
@@ -569,8 +572,9 @@ function renderHtmlPage(params) {
       }
 
       function updateButtonStates() {
-        const isIncomplete = currentState.totalClients > 0 && currentState.displayCursor < currentState.totalClients;
-        const shouldKeepStartDisabled = manualRunActive && isIncomplete;
+        const hasStableProgress = manualRunActive && lastStableTotal > 0 && lastStableCursor < lastStableTotal;
+        const hasCurrentProgress = currentState.totalClients > 0 && currentState.displayCursor < currentState.totalClients;
+        const shouldKeepStartDisabled = manualRunActive && (hasCurrentProgress || hasStableProgress);
 
         startBtn.disabled = currentState.running || lockUi || shouldKeepStartDisabled;
         forceBtn.style.display = currentState.staleByHeartbeat ? 'flex' : 'none';
@@ -623,7 +627,7 @@ function renderHtmlPage(params) {
 
           showMessage('Retomando atualização (tentativa ' + autoResumeAttempts + '/8)...', 'warn');
           await startUpdate(true);
-        }, 1500);
+        }, 750);
       }
 
       // ==================== FETCH STATUS ====================
@@ -643,13 +647,55 @@ function renderHtmlPage(params) {
             return null;
           }
 
-          // Atualizar estado
+          // Atualizar estado sem deixar o progresso regredir visualmente
+          const incomingRunning = !!data.running;
+          const incomingCursor = Number(data.displayCursor || data.cursor || 0);
+          const incomingStoredCursor = Number(data.cursor || 0);
+          const incomingTotal = Number(data.totalClients || 0);
+          let incomingStage = String(data.stage || 'idle');
+
+          if (manualRunActive) {
+            if (incomingTotal <= 0 && lastStableTotal > 0) {
+              currentState.totalClients = lastStableTotal;
+            } else {
+              currentState.totalClients = incomingTotal;
+              if (incomingTotal > 0) {
+                lastStableTotal = Math.max(lastStableTotal, incomingTotal);
+              }
+            }
+
+            const stableCursorCandidate = Math.max(incomingCursor, incomingStoredCursor, lastStableCursor);
+            currentState.displayCursor = currentState.totalClients > 0 && incomingStage !== 'done'
+              ? stableCursorCandidate
+              : incomingCursor;
+
+            if (currentState.displayCursor > lastStableCursor) {
+              lastStableCursor = currentState.displayCursor;
+            }
+
+            if (incomingStage === 'idle' && lastStableStage !== 'done' && currentState.displayCursor > 0) {
+              incomingStage = lastStableStage;
+            } else if (incomingStage !== 'idle') {
+              lastStableStage = incomingStage;
+            }
+          } else {
+            currentState.totalClients = incomingTotal;
+            currentState.displayCursor = incomingCursor;
+            if (incomingTotal > 0) {
+              lastStableTotal = incomingTotal;
+              lastStableCursor = incomingCursor;
+              if (incomingStage !== 'idle') {
+                lastStableStage = incomingStage;
+              }
+            }
+          }
+
           currentState = {
-            running: !!data.running,
-            cursor: Number(data.cursor || 0),
-            displayCursor: Number(data.displayCursor || data.cursor || 0),
-            totalClients: Number(data.totalClients || 0),
-            stage: String(data.stage || 'idle'),
+            running: incomingRunning,
+            cursor: incomingStoredCursor,
+            displayCursor: currentState.displayCursor,
+            totalClients: currentState.totalClients,
+            stage: incomingStage,
             staleByHeartbeat: !!data.staleByHeartbeat,
             heartbeatAgeMs: Number(data.heartbeatAgeMs || 0)
           };
@@ -690,9 +736,12 @@ function renderHtmlPage(params) {
         clearAutoResumeTimer();
         autoResumeAttempts = 0;
         lastAutoResumeCursor = -1;
+        const wasManualRunActive = manualRunActive;
         manualRunActive = true;
         lockUi = true;
-        updateStartTime = Date.now();
+        if (!wasManualRunActive || updateStartTime <= 0) {
+          updateStartTime = Date.now();
+        }
 
         // Preserve previous state during resume
         const prevState = { ...currentState };
@@ -708,10 +757,10 @@ function renderHtmlPage(params) {
             return;
           }
 
-          // If resume and cursor went to 0, restore previous cursor
-          if (forceRestart && prevState.displayCursor > 0 && currentState.displayCursor === 0) {
+          // If resume and cursor regressed, keep the best known progress on screen
+          if (forceRestart && prevState.displayCursor > 0 && currentState.displayCursor < prevState.displayCursor) {
             currentState.displayCursor = prevState.displayCursor;
-            currentState.totalClients = prevState.totalClients;
+            currentState.totalClients = Math.max(prevState.totalClients || 0, currentState.totalClients || 0);
             updateProgressDisplay();
           }
 
@@ -914,4 +963,5 @@ module.exports = async (req, res) => {
     return sendHtml(res, `<h1>500 - Erro</h1><p>${error && error.message ? error.message : 'Erro ao carregar página'}</p>`, 500);
   }
 };
+
 
