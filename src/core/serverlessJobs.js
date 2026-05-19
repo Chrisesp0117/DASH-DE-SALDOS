@@ -254,7 +254,10 @@ async function runFullUpdateJob(options = {}) {
 
   while (true) {
     const elapsed = Date.now() - startTime;
+    console.log(`[runFullUpdateJob-loop] iterations=${iterations}, elapsed=${elapsed}ms/${maxMs}ms, totalProcessed=${totalProcessed}`);
+    
     if (elapsed >= maxMs) {
+      console.warn(`[runFullUpdateJob] TIMEOUT! elapsed=${elapsed}ms >= maxMs=${maxMs}ms`);
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       // Importante: atualizar o cursor ANTES de liberar o lock
       if (result && result.nextCursor !== undefined) {
@@ -280,11 +283,15 @@ async function runFullUpdateJob(options = {}) {
     }
 
     try {
+      const preRunTime = Date.now();
       result = await runUpdateJob({
         batchSize,
         includeSupervisorAgg: includeSupervisor,
         jobControl
       });
+      const postRunTime = Date.now();
+      const runMs = postRunTime - preRunTime;
+      console.log(`[runFullUpdateJob] runUpdateJob duration=${runMs}ms, result.ok=${result?.ok}, result.finished=${result?.finished}, processed=${result?.processed}`);
     } catch (error) {
       if (String(error && error.code || '') === 'JOB_INTERRUPTED') {
         if (heartbeatTimer) clearInterval(heartbeatTimer);

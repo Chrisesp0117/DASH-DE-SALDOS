@@ -618,8 +618,9 @@ async function run(options = {}) {
   const actualProcessed = batchClientes.length;
   const nextCursor = cursor + actualProcessed;
   const finished = nextCursor >= totalClientes;
+  const percentComplete = totalClientes > 0 ? Math.round((nextCursor / totalClientes) * 100) : 0;
 
-  console.log(`[batch-end] cursor=${cursor}, batchClientes.length=${batchClientes.length}, validBatchRows.length=${validBatchRows.length}, nextCursor=${nextCursor}, totalClientes=${totalClientes}, finished=${finished}`);
+  console.log(`[batch-end] cursor=${cursor}, batchClientes.length=${batchClientes.length}, validBatchRows.length=${validBatchRows.length}, nextCursor=${nextCursor}, totalClientes=${totalClientes}, finished=${finished}, percent=${percentComplete}%`);
 
   try {
     await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
