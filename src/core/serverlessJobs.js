@@ -252,26 +252,32 @@ async function runFullUpdateJob(options = {}) {
   let totalProcessed = 0;
   let result = null;
 
+  console.log(`[runFullUpdateJob] Starting loop with maxMs=${maxMs}, jobId=${jobControl.jobId}, generation=${jobControl.generation}`);
+
   while (true) {
     const elapsed = Date.now() - startTime;
     console.log(`[runFullUpdateJob-loop] iterations=${iterations}, elapsed=${elapsed}ms/${maxMs}ms, totalProcessed=${totalProcessed}`);
     
     if (elapsed >= maxMs) {
-      console.warn(`[runFullUpdateJob] TIMEOUT! elapsed=${elapsed}ms >= maxMs=${maxMs}ms`);
+      console.warn(`[runFullUpdateJob] TIMEOUT! elapsed=${elapsed}ms >= maxMs=${maxMs}ms, iterations=${iterations}, totalProcessed=${totalProcessed}, result.nextCursor=${result?.nextCursor}`);
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       // Importante: atualizar o cursor ANTES de liberar o lock
       if (result && result.nextCursor !== undefined) {
         try {
+          console.log(`[runFullUpdateJob] Saving cursor on timeout: nextCursor=${result.nextCursor}`);
           await touchJobState(sheets, spreadsheetId, jobControl, {
             cursor: result.nextCursor,
+            progressCursor: result.nextCursor,
             stage: 'database',
             lastAction: 'timeout_save_cursor'
           });
+          console.log(`[runFullUpdateJob] Cursor saved successfully`);
         } catch (e) {
           console.warn('[runFullUpdateJob] falha ao salvar cursor antes do timeout:', e && e.message);
         }
       }
       await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
+      console.log(`[runFullUpdateJob] Released job lock, returning time_budget_reached`);
       return {
         ok: true,
         finished: false,
