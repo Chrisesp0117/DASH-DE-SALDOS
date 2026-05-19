@@ -500,13 +500,22 @@ function renderHtmlPage(params) {
       const BASE_BACKOFF_MS = 1000;
 
       // ==================== ESTADO DO PROGRESSO ====================
-      let currentState = {
-        running: false,
-        cursor: 0,
-        totalClients: 0,
-        stage: 'idle',
-        displayCursor: 0
-      };
+      // Tentar restaurar estado anterior do sessionStorage (não zera ao fazer F5)
+      const savedState = sessionStorage.getItem('updateProgress');
+      const savedTime = parseInt(sessionStorage.getItem('updateStartTime') || '0', 10);
+      const timeSinceStart = Date.now() - savedTime;
+      // Se passou menos de 5 minutos desde o último load, restaurar o estado
+      const shouldRestoreState = savedState && timeSinceStart < 300000 && timeSinceStart > 0;
+      
+      let currentState = shouldRestoreState 
+        ? JSON.parse(savedState)
+        : {
+          running: false,
+          cursor: 0,
+          totalClients: 0,
+          stage: 'idle',
+          displayCursor: 0
+        };
 
       // ==================== UTILITÁRIOS ====================
       function getStageLabel(stage) {
@@ -759,6 +768,10 @@ function renderHtmlPage(params) {
             heartbeatAgeMs: Number(data.heartbeatAgeMs || 0)
           };
 
+          // Salvar estado no sessionStorage para restaurar em caso de F5
+          sessionStorage.setItem('updateProgress', JSON.stringify(currentState));
+          sessionStorage.setItem('updateStartTime', String(updateStartTime));
+
           updateProgressDisplay();
           updateStatusBadge();
 
@@ -774,6 +787,9 @@ function renderHtmlPage(params) {
               manualRunActive = false;
               showMessage('Atualização concluída com sucesso! Fechando em 5 segundos...', 'success');
               clearAutoResumeTimer();
+              // Limpar sessionStorage ao finalizar para não restaurar estado antigo
+              sessionStorage.removeItem('updateProgress');
+              sessionStorage.removeItem('updateStartTime');
               scheduleWindowClose();
             } else {
               hideMessage();

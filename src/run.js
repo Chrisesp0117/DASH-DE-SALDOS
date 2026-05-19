@@ -613,12 +613,13 @@ async function run(options = {}) {
     }
   ]);
 
-  // Usar o número real de linhas processadas, não o tamanho pré-alocado do array
-  const actualProcessed = validBatchRows.length;
+  // O número de clientes processados é sempre o número de itens no batchRows
+  // (não o número de itens válidos, porque cada cliente produz uma linha, seja sucesso ou erro)
+  const actualProcessed = batchClientes.length;
   const nextCursor = cursor + actualProcessed;
   const finished = nextCursor >= totalClientes;
 
-  console.log(`[batch-end] cursor=${cursor}, actualProcessed=${actualProcessed}, nextCursor=${nextCursor}, totalClientes=${totalClientes}, finished=${finished}, validBatchRows.length=${validBatchRows.length}, batchRows.length=${batchRows.length}`);
+  console.log(`[batch-end] cursor=${cursor}, batchClientes.length=${batchClientes.length}, validBatchRows.length=${validBatchRows.length}, nextCursor=${nextCursor}, totalClientes=${totalClientes}, finished=${finished}`);
 
   try {
     await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
