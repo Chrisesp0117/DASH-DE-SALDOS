@@ -570,7 +570,7 @@ async function run(options = {}) {
     if (cursor < totalClientes) {
       // Ainda há clientes! Não marca como finished.
       console.log('Lote vazio em cursor=' + cursor + ' mas totalClientes=' + totalClientes + '; continuar processando');
-      await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { cursor });
+      await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { cursor, totalClients: totalClientes });
       if (ownsJobControl) {
         await releaseJobState(sheets, process.env.SPREADSHEET_ID, jobControl, 'idle');
       }
@@ -753,7 +753,7 @@ async function run(options = {}) {
   if (includeSupervisorAgg) {
     try {
       try {
-        await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { stage: 'supervisor', lastAction: 'pre_generate_supervisor' });
+        await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { stage: 'supervisor', lastAction: 'pre_generate_supervisor', totalClients: totalClientes });
       } catch (e) { }
       await generateBlocosPorGestor(sheets, process.env.SPREADSHEET_ID);
       console.log('SUPERVISOR atualizado');
@@ -763,7 +763,7 @@ async function run(options = {}) {
 
     try {
       try {
-        await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { stage: 'aggregating', lastAction: 'pre_generate_agg' });
+        await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { stage: 'aggregating', lastAction: 'pre_generate_agg', totalClients: totalClientes });
       } catch (e) { }
       await generateSupervisorAgg(sheets, process.env.SPREADSHEET_ID);
       console.log('AGG_SUPERVISOR atualizado');
@@ -774,7 +774,7 @@ async function run(options = {}) {
 
   if (!skipDashboards) {
     try {
-      await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { stage: 'dashboards', lastAction: 'pre_dashboards' });
+      await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { stage: 'dashboards', lastAction: 'pre_dashboards', totalClients: totalClientes });
       const dashResult = await ensureDashboardsForAllGestores(sheets, process.env.SPREADSHEET_ID);
       if (dashResult.ok) {
         const criadas = dashResult.resultados.filter(r => r.status === 'criada').length;
