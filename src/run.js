@@ -185,10 +185,27 @@ async function clearDatabaseTail(sheets, spreadsheetId, totalRows, maxRows = 100
     return;
   }
 
-  await sheets.spreadsheets.values.clear({
-    spreadsheetId,
-    range: `DATABASE!A${startRow}:M${maxRows}`
-  });
+  const maxAttempts = 4;
+  let attempt = 0;
+  while (attempt < maxAttempts) {
+    try {
+      return await sheets.spreadsheets.values.clear({
+        spreadsheetId,
+        range: `DATABASE!A${startRow}:M${maxRows}`
+      });
+    } catch (err) {
+      const msg = String(err && (err.message || err.code || err.status) || '').toLowerCase();
+      const isQuota = msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(err && err.status) === '429' || String(err && err.code) === '429';
+      attempt += 1;
+      if (isQuota && attempt < maxAttempts) {
+        const wait = Math.pow(2, attempt) * 1000;
+        console.warn(`[clearDatabaseTail] Quota 429 recebido, retry em ${wait}ms (tentativa ${attempt}/${maxAttempts})`);
+        await new Promise(resolve => setTimeout(resolve, wait));
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 async function readJobCursor(sheets, spreadsheetId) {
@@ -211,10 +228,31 @@ async function readJobCursor(sheets, spreadsheetId) {
 }
 
 async function applyDatabaseFormatting(sheets, spreadsheetId, totalRows) {
-  const databaseRowsRes = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: `DATABASE!A1:M${Math.max(totalRows + 1, 2)}`
-  });
+  const maxAttempts = 4;
+  let attempt = 0;
+  let databaseRowsRes = null;
+  
+  // Retry para leitura de dados
+  while (attempt < maxAttempts) {
+    try {
+      databaseRowsRes = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `DATABASE!A1:M${Math.max(totalRows + 1, 2)}`
+      });
+      break;
+    } catch (err) {
+      const msg = String(err && (err.message || err.code || err.status) || '').toLowerCase();
+      const isQuota = msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(err && err.status) === '429' || String(err && err.code) === '429';
+      attempt += 1;
+      if (isQuota && attempt < maxAttempts) {
+        const wait = Math.pow(2, attempt) * 1000;
+        console.warn(`[applyDatabaseFormatting-read] Quota 429 recebido, retry em ${wait}ms (tentativa ${attempt}/${maxAttempts})`);
+        await new Promise(resolve => setTimeout(resolve, wait));
+        continue;
+      }
+      throw err;
+    }
+  }
 
   const databaseRows = databaseRowsRes.data.values || [];
 
@@ -277,10 +315,27 @@ async function applyDatabaseFormatting(sheets, spreadsheetId, totalRows) {
   }
 
   if (formatRequests.length) {
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId,
-      requestBody: { requests: formatRequests }
-    });
+    const maxAttempts = 4;
+    let attempt = 0;
+    while (attempt < maxAttempts) {
+      try {
+        return await sheets.spreadsheets.batchUpdate({
+          spreadsheetId,
+          requestBody: { requests: formatRequests }
+        });
+      } catch (err) {
+        const msg = String(err && (err.message || err.code || err.status) || '').toLowerCase();
+        const isQuota = msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(err && err.status) === '429' || String(err && err.code) === '429';
+        attempt += 1;
+        if (isQuota && attempt < maxAttempts) {
+          const wait = Math.pow(2, attempt) * 1000;
+          console.warn(`[applyDatabaseFormatting] Quota 429 recebido, retry em ${wait}ms (tentativa ${attempt}/${maxAttempts})`);
+          await new Promise(resolve => setTimeout(resolve, wait));
+          continue;
+        }
+        throw err;
+      }
+    }
   }
 }
 
