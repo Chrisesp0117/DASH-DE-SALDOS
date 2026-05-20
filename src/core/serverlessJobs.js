@@ -301,6 +301,7 @@ async function runFullUpdateJob(options = {}) {
       console.log(`[runFullUpdateJob] runUpdateJob duration=${runMs}ms, result.ok=${result?.ok}, result.finished=${result?.finished}, processed=${result?.processed}`);
     } catch (error) {
       if (String(error && error.code || '') === 'JOB_INTERRUPTED') {
+        console.warn('[runFullUpdateJob-interrupted] Job foi reiniciado por outro worker! iterations=' + iterations + ', totalProcessed=' + totalProcessed);
         if (heartbeatTimer) clearInterval(heartbeatTimer);
         await releaseJobState(sheets, spreadsheetId, jobControl, 'idle');
         return {

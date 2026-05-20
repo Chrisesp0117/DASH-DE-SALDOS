@@ -598,6 +598,7 @@ async function run(options = {}) {
   for (let start = 0; start < batchClientes.length; start += processConcurrency) {
     const active = await assertJobStateActive(sheets, process.env.SPREADSHEET_ID, jobControl);
     if (!active.active) {
+      console.error('[run-loop-interrupted] Job foi interrompido! start=' + start + ', jobControl.generation=' + jobControl.generation + ', current.generation=' + active.state.generation);
       const err = new Error('Job interrompido por uma atualização mais recente.');
       err.code = 'JOB_INTERRUPTED';
       throw err;

@@ -313,13 +313,18 @@ function isSameJobState(current, control) {
 async function assertJobStateActive(sheets, spreadsheetId, control) {
   if (!control) return { active: true, state: createDefaultJobState() };
   const current = await readJobState(sheets, spreadsheetId);
-  return { active: isSameJobState(current, control), state: current };
+  const isSame = isSameJobState(current, control);
+  if (!isSame) {
+    console.error('[assertJobStateActive] Mismatch detected! control.generation=' + control.generation + ', current.generation=' + current.generation);
+  }
+  return { active: isSame, state: current };
 }
 
 async function touchJobState(sheets, spreadsheetId, control, updates = {}) {
   if (!control) return;
   const current = await readJobState(sheets, spreadsheetId);
   if (!isSameJobState(current, control)) {
+    console.error('[touchJobState-INTERRUPTED] Generation mismatch! control.generation=' + control.generation + ', current.generation=' + current.generation + ', lastAction=' + updates.lastAction);
     const err = new Error('Job interrompido por uma atualização mais recente.');
     err.code = 'JOB_INTERRUPTED';
     throw err;
