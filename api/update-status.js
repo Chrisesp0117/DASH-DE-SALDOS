@@ -25,6 +25,8 @@ module.exports = async (req, res) => {
     const stage = String(state.stage || 'idle');
     const status = String(state.status || 'idle');
     
+    console.log('[update-status] status=' + status + ', stage=' + stage + ', progressCursor=' + progressCursor + ', storedCursor=' + storedCursor + ', totalClients=' + totalClients);
+    
     // Lógica corrigida de priorização de cursor:
     // 1. Se job está em execução (status='running'), usar progressCursor (atualizado em tempo real)
     // 2. Se job está pausado ou parou (stage='paused'/'database'), usar maior entre cursor e progressCursor
@@ -34,12 +36,15 @@ module.exports = async (req, res) => {
     if (status === 'running') {
       // Job em execução: usar progressCursor atualizado em tempo real
       cursor = Math.max(progressCursor, storedCursor);
+      console.log('[update-status-running] cursor=' + cursor + ' (status=running)');
     } else if (stage === 'done') {
       // Job finalizado: usar cursor (que já recebeu o valor de progressCursor em finishJobState)
       cursor = Math.max(storedCursor, progressCursor);
+      console.log('[update-status-done] cursor=' + cursor + ' (stage=done)');
     } else {
       // Job pausado ou outro estado: usar maior para segurança
       cursor = Math.max(storedCursor, progressCursor);
+      console.log('[update-status-other] cursor=' + cursor + ' (stage=' + stage + ')');
     }
 
     return sendJson(res, {

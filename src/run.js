@@ -236,12 +236,17 @@ async function readJobCursor(sheets, spreadsheetId) {
   const progressCursor = Number.isFinite(Number(state.progressCursor)) && Number(state.progressCursor) >= 0 ? Number(state.progressCursor) : 0;
   const cursor = Number.isFinite(Number(state.cursor)) && Number(state.cursor) >= 0 ? Number(state.cursor) : 0;
   
+  console.log('[readJobCursor] status=' + status + ', stage=' + stage + ', progressCursor=' + progressCursor + ', cursor=' + cursor);
+  
   // Se job está em execução (status running) ou em pausado (stage paused/database), usar progressCursor
   // Se job está finalizado, usar cursor
   if (status === 'running' || (stage !== 'done' && stage !== 'idle')) {
-    return Math.max(progressCursor, cursor);
+    const result = Math.max(progressCursor, cursor);
+    console.log('[readJobCursor-result] Retornando ' + result + ' (usando progressCursor)');
+    return result;
   }
   
+  console.log('[readJobCursor-result] Retornando ' + cursor + ' (usando cursor)');
   return cursor;
 }
 
@@ -524,8 +529,10 @@ async function run(options = {}) {
   const idxRevisao = getIndex('Revisão', 4);
   const idxSupervisor = getIndex('Supervisor', -1);
   const totalClientes = clientes.length;
+  console.log('[run-init] clientes.length=' + totalClientes);
 
   let cursor = Number.isFinite(Number(options.cursor)) ? Math.max(0, Number(options.cursor)) : await readJobCursor(sheets, process.env.SPREADSHEET_ID);
+  console.log('[run-cursor] cursor após readJobCursor=' + cursor);
   // Permite cursor === totalClientes para retomar jobs em que a fase DATABASE
   // já terminou e faltam apenas etapas finais (supervisor/dashboards).
   if (totalClientes <= 0) {
@@ -533,6 +540,7 @@ async function run(options = {}) {
   } else if (!Number.isFinite(cursor) || cursor < 0 || cursor > totalClientes) {
     cursor = 0;
   }
+  console.log('[run-cursor-final] cursor depois de validação=' + cursor);
 
   console.log(`[init] totalClientes=${totalClientes}, cursor=${cursor}, ownsJobControl=${ownsJobControl}`);
 
@@ -657,6 +665,7 @@ async function run(options = {}) {
       const shouldTouchProgress = processedCount === batchClientes.length || (now - lastProgressTouchAt) >= progressUpdateIntervalMs;
       if (shouldTouchProgress) {
         try {
+          console.log('[progress-touch] Tentando atualizar progressCursor para ' + (item.index + 1) + ', totalClientes=' + totalClientes);
           await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
             stage: 'database',
             progressCursor: item.index + 1,
@@ -664,7 +673,7 @@ async function run(options = {}) {
             lastAction: 'progress'
           });
           lastProgressTouchAt = now;
-          console.log(`[progress] progressCursor atualizado para ${item.index + 1}/${totalClientes}`);
+          console.log('[progress] progressCursor atualizado para ' + (item.index + 1) + '/' + totalClientes);
         } catch (e) {
           console.error('[progress-error] Erro ao atualizar progressCursor:', e && e.message);
         }
@@ -696,6 +705,7 @@ async function run(options = {}) {
   let finalTotalClientes = totalClientes;
   if (totalClientes === 0 && cursor > 0) {
     console.error(`[SAFETY] totalClientes é 0 mas cursor=${cursor}! Não marcando como finished. Força releitura de totalClientes.`);
+    console.error(`[SAFETY] clientes.length=${clientes.length}, usando como fonte da verdade`);
     finalTotalClientes = clientes.length;
   }
   
