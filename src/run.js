@@ -693,21 +693,22 @@ async function run(options = {}) {
   
   // SEGURANÇA: Se totalClientes é 0 mas cursor > 0, algo deu errado. Não marcar como finished.
   // Isso previne que a job termine prematuramente se totalClientes foi perdido no job state.
+  let finalTotalClientes = totalClientes;
   if (totalClientes === 0 && cursor > 0) {
     console.error(`[SAFETY] totalClientes é 0 mas cursor=${cursor}! Não marcando como finished. Força releitura de totalClientes.`);
-    totalClientes = clientes.length;
+    finalTotalClientes = clientes.length;
   }
   
-  const finished = nextCursor >= totalClientes;
-  const percentComplete = totalClientes > 0 ? Math.round((nextCursor / totalClientes) * 100) : 0;
+  const finished = nextCursor >= finalTotalClientes;
+  const percentComplete = finalTotalClientes > 0 ? Math.round((nextCursor / finalTotalClientes) * 100) : 0;
 
-  console.log(`[batch-end] cursor=${cursor}, batchClientes.length=${batchClientes.length}, validBatchRows.length=${validBatchRows.length}, nextCursor=${nextCursor}, totalClientes=${totalClientes}, finished=${finished}, percent=${percentComplete}%`);
+  console.log(`[batch-end] cursor=${cursor}, batchClientes.length=${batchClientes.length}, validBatchRows.length=${validBatchRows.length}, nextCursor=${nextCursor}, totalClientes=${finalTotalClientes}, finished=${finished}, percent=${percentComplete}%`);
 
   try {
     await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
       stage: finished ? 'database_complete' : 'database',
       cursor: nextCursor,
-      totalClients: totalClientes,
+      totalClients: finalTotalClientes,
       lastAction: finished ? 'database_complete' : 'database_progress'
     });
     console.log('[diagnostic] touched job state', { jobId: jobControl.jobId, generation: jobControl.generation, nextCursor, finished });
