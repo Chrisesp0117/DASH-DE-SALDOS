@@ -568,8 +568,13 @@ function renderHtmlPage(params) {
           clearTimeout(closeWindowTimer);
         }
         closeWindowTimer = setTimeout(() => {
-          if (window.opener) {
+          // Tentar fechar a aba/janela
+          // window.close() funciona se: 1) aba foi aberta via window.open(), ou 2) é a mesma origem
+          // Se falhar silenciosamente, o usuário pode fechar manualmente
+          try {
             window.close();
+          } catch (e) {
+            console.warn('Não foi possível fechar a janela automaticamente:', e);
           }
         }, 5000);
       }
@@ -785,7 +790,7 @@ function renderHtmlPage(params) {
               scheduleAutoResume(data);
             } else if (total > 0 && cursor >= total) {
               manualRunActive = false;
-              showMessage('Atualização concluída com sucesso! Fechando em 5 segundos...', 'success');
+              showMessage('✅ Atualização concluída com sucesso! Janela fechará em 5 segundos... (ou feche manualmente)', 'success');
               clearAutoResumeTimer();
               // Limpar sessionStorage ao finalizar para não restaurar estado antigo
               sessionStorage.removeItem('updateProgress');
