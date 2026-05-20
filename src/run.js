@@ -617,6 +617,14 @@ async function run(options = {}) {
   // (não o número de itens válidos, porque cada cliente produz uma linha, seja sucesso ou erro)
   const actualProcessed = batchClientes.length;
   const nextCursor = cursor + actualProcessed;
+  
+  // SEGURANÇA: Se totalClientes é 0 mas cursor > 0, algo deu errado. Não marcar como finished.
+  // Isso previne que a job termine prematuramente se totalClientes foi perdido no job state.
+  if (totalClientes === 0 && cursor > 0) {
+    console.error(`[SAFETY] totalClientes é 0 mas cursor=${cursor}! Não marcando como finished. Força releitura de totalClientes.`);
+    totalClientes = clientes.length;
+  }
+  
   const finished = nextCursor >= totalClientes;
   const percentComplete = totalClientes > 0 ? Math.round((nextCursor / totalClientes) * 100) : 0;
 

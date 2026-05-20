@@ -264,10 +264,11 @@ async function runFullUpdateJob(options = {}) {
       // Importante: atualizar o cursor ANTES de liberar o lock
       if (result && result.nextCursor !== undefined) {
         try {
-          console.log(`[runFullUpdateJob] Saving cursor on timeout: nextCursor=${result.nextCursor}`);
+          console.log(`[runFullUpdateJob] Saving cursor on timeout: nextCursor=${result.nextCursor}, total=${result.total}`);
           await touchJobState(sheets, spreadsheetId, jobControl, {
             cursor: result.nextCursor,
             progressCursor: result.nextCursor,
+            totalClients: result.total,
             stage: 'database',
             lastAction: 'timeout_save_cursor'
           });
@@ -321,6 +322,7 @@ async function runFullUpdateJob(options = {}) {
         try {
           await touchJobState(sheets, spreadsheetId, jobControl, {
             cursor: result.nextCursor,
+            totalClients: result.total,
             stage: 'database',
             lastAction: 'error_save_cursor'
           });
@@ -348,6 +350,7 @@ async function runFullUpdateJob(options = {}) {
         try {
           await touchJobState(sheets, spreadsheetId, jobControl, {
             cursor: result.nextCursor,
+            totalClients: result.total,
             stage: 'database',
             lastAction: 'failure_save_cursor'
           });
