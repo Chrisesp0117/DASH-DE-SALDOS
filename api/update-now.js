@@ -494,7 +494,7 @@ function renderHtmlPage(params) {
       let lastStableStage = 'idle';
       let closeWindowTimer = null;
       let pollingTimer = null;
-      let pollingIntervalMs = 1000; // cliente polling padrão (ms)
+      let pollingIntervalMs = 500; // cliente polling padrão (ms) - reduzido para retomadas mais rápidas
       let backoffAttempts = 0;
       const MAX_BACKOFF_ATTEMPTS = 6;
       const BASE_BACKOFF_MS = 1000;
@@ -671,7 +671,7 @@ function renderHtmlPage(params) {
 
           showMessage('Retomando atualização (tentativa ' + autoResumeAttempts + '/8)...', 'warn');
           await startUpdate(true);
-        }, 750);
+        }, 300);
       }
 
       // ==================== FETCH STATUS ====================
