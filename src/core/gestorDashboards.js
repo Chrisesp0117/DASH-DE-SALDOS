@@ -28,6 +28,27 @@ function formatLastUpdatePTBR(date = new Date()) {
   return `${datePart} às ${timePart}`;
 }
 
+// Helper para retry com backoff em operações do Google Sheets
+async function retryWithBackoff(operation, maxAttempts = 4, name = 'operation') {
+  let attempt = 0;
+  while (attempt < maxAttempts) {
+    try {
+      return await operation();
+    } catch (err) {
+      const msg = String(err && (err.message || err.code || err.status) || '').toLowerCase();
+      const isQuota = msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(err && err.status) === '429' || String(err && err.code) === '429';
+      attempt += 1;
+      if (isQuota && attempt < maxAttempts) {
+        const wait = Math.pow(2, attempt) * 1000;
+        console.warn(`[${name}] Quota 429 recebido, retry em ${wait}ms (tentativa ${attempt}/${maxAttempts})`);
+        await new Promise(resolve => setTimeout(resolve, wait));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 function sanitizeSheetName(title) {
   return String(title || '').trim().replace(/'/g, "''");
 }
@@ -178,20 +199,24 @@ async function ensureDashboardSheet(sheets, spreadsheetId, sheetMeta, sheetTitle
     };
   }
 
-  const response = await sheets.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: {
-      requests: [
-        {
-          addSheet: {
-            properties: {
-              title: sheetTitle
+  const response = await retryWithBackoff(
+    () => sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            addSheet: {
+              properties: {
+                title: sheetTitle
+              }
             }
           }
-        }
-      ]
-    }
-  });
+        ]
+      }
+    }),
+    4,
+    'ensureDashboardSheet'
+  );
 
   const reply = (response.data.replies || []).find(item => item.addSheet && item.addSheet.properties);
   const sheetId = reply && reply.addSheet && reply.addSheet.properties ? reply.addSheet.properties.sheetId : null;
@@ -223,31 +248,35 @@ async function mirrorSupervisorBlockToDashboard(sheets, spreadsheetId, sheetMeta
     range: `'${sanitizeSheetName(sheetTitle)}'!A:D`
   });
 
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: {
-      requests: [
-        {
-          copyPaste: {
-            source: {
-              sheetId: sourceSheetId,
-              startRowIndex: sourceBlock.startRowIndex,
-              endRowIndex: sourceBlock.endRowIndex,
-              startColumnIndex: 0,
-              endColumnIndex: 4
-            },
-            destination: {
-              sheetId: targetSheetId,
-              startRowIndex: 0,
-              startColumnIndex: 0
-            },
-            pasteType: 'PASTE_NORMAL',
-            pasteOrientation: 'NORMAL'
+  await retryWithBackoff(
+    () => sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            copyPaste: {
+              source: {
+                sheetId: sourceSheetId,
+                startRowIndex: sourceBlock.startRowIndex,
+                endRowIndex: sourceBlock.endRowIndex,
+                startColumnIndex: 0,
+                endColumnIndex: 4
+              },
+              destination: {
+                sheetId: targetSheetId,
+                startRowIndex: 0,
+                startColumnIndex: 0
+              },
+              pasteType: 'PASTE_NORMAL',
+              pasteOrientation: 'NORMAL'
+            }
           }
-        }
-      ]
-    }
-  });
+        ]
+      }
+    }),
+    4,
+    'mirrorSupervisorBlockToDashboard'
+  );
 
   return {
     created: ensureResult.created,
@@ -566,10 +595,14 @@ async function applyDashboardFormatting(sheets, spreadsheetId, sheetId, metaRows
     });
   }
 
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: { requests }
-  });
+  await retryWithBackoff(
+    () => sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests }
+    }),
+    4,
+    'updateDashboardFormatting'
+  );
 }
 
 async function createDashboardForGestor(sheets, spreadsheetId, gestor, options = {}) {

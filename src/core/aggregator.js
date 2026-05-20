@@ -44,17 +44,34 @@ async function ensureSheet(sheets, spreadsheetId, title) {
   const existing = (meta.data.sheets || []).find(s => s.properties && s.properties.title === title);
   if (existing) return existing.properties.sheetId;
 
-  const resp = await sheets.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: {
-      requests: [
-        { addSheet: { properties: { title } } }
-      ]
-    }
-  });
+  const maxAttempts = 4;
+  let attempt = 0;
+  while (attempt < maxAttempts) {
+    try {
+      const resp = await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [
+            { addSheet: { properties: { title } } }
+          ]
+        }
+      });
 
-  const added = resp.data.replies && resp.data.replies[0] && resp.data.replies[0].addSheet;
-  return added && added.properties && added.properties.sheetId;
+      const added = resp.data.replies && resp.data.replies[0] && resp.data.replies[0].addSheet;
+      return added && added.properties && added.properties.sheetId;
+    } catch (err) {
+      const msg = String(err && (err.message || err.code || err.status) || '').toLowerCase();
+      const isQuota = msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(err && err.status) === '429' || String(err && err.code) === '429';
+      attempt += 1;
+      if (isQuota && attempt < maxAttempts) {
+        const wait = Math.pow(2, attempt) * 1000;
+        console.warn(`[ensureSheet] Quota 429 recebido, retry em ${wait}ms (tentativa ${attempt}/${maxAttempts})`);
+        await new Promise(resolve => setTimeout(resolve, wait));
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 async function generateSupervisorAgg(sheets, spreadsheetId) {
@@ -126,30 +143,48 @@ async function generateSupervisorAgg(sheets, spreadsheetId) {
 
   // Bold headers
   if (sheetId !== undefined) {
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId,
-      requestBody: {
-        requests: [
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: HEADERS.length },
-              cell: { userEnteredFormat: { textFormat: { bold: true } } },
-              fields: 'userEnteredFormat.textFormat.bold'
-            }
-          },
-          {
-            autoResizeDimensions: {
-              dimensions: {
-                sheetId,
-                dimension: 'COLUMNS',
-                startIndex: 0,
-                endIndex: HEADERS.length
+    const maxAttempts = 4;
+    let attempt = 0;
+    while (attempt < maxAttempts) {
+      try {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId,
+          requestBody: {
+            requests: [
+              {
+                repeatCell: {
+                  range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: HEADERS.length },
+                  cell: { userEnteredFormat: { textFormat: { bold: true } } },
+                  fields: 'userEnteredFormat.textFormat.bold'
+                }
+              },
+              {
+                autoResizeDimensions: {
+                  dimensions: {
+                    sheetId,
+                    dimension: 'COLUMNS',
+                    startIndex: 0,
+                    endIndex: HEADERS.length
+                  }
+                }
               }
-            }
+            ]
           }
-        ]
+        });
+        break;
+      } catch (err) {
+        const msg = String(err && (err.message || err.code || err.status) || '').toLowerCase();
+        const isQuota = msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(err && err.status) === '429' || String(err && err.code) === '429';
+        attempt += 1;
+        if (isQuota && attempt < maxAttempts) {
+          const wait = Math.pow(2, attempt) * 1000;
+          console.warn(`[generateSupervisorAgg-format] Quota 429 recebido, retry em ${wait}ms (tentativa ${attempt}/${maxAttempts})`);
+          await new Promise(resolve => setTimeout(resolve, wait));
+          continue;
+        }
+        throw err;
       }
-    });
+    }
   }
 
   return { rows: rowsOut.length };
