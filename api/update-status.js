@@ -25,6 +25,11 @@ module.exports = async (req, res) => {
     const stage = String(state.stage || 'idle');
     const status = String(state.status || 'idle');
     
+    // DEBUG: Se totalClients=0 mas job está rodando, algo errado
+    if (totalClients === 0 && status === 'running') {
+      console.error('[update-status-BUG] CRITICAL! totalClients=0 mas status=running! state.totalClients=' + state.totalClients + ', raw state=' + JSON.stringify(state).substring(0, 200));
+    }
+    
     console.log('[update-status] status=' + status + ', stage=' + stage + ', progressCursor=' + progressCursor + ', storedCursor=' + storedCursor + ', totalClients=' + totalClients);
     
     // Lógica corrigida de priorização de cursor:

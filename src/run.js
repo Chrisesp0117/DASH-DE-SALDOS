@@ -235,8 +235,14 @@ async function readJobCursor(sheets, spreadsheetId) {
   const status = String(state.status || 'idle');
   const progressCursor = Number.isFinite(Number(state.progressCursor)) && Number(state.progressCursor) >= 0 ? Number(state.progressCursor) : 0;
   const cursor = Number.isFinite(Number(state.cursor)) && Number(state.cursor) >= 0 ? Number(state.cursor) : 0;
+  const totalClients = Number.isFinite(Number(state.totalClients)) ? Number(state.totalClients) : 0;
   
-  console.log('[readJobCursor] status=' + status + ', stage=' + stage + ', progressCursor=' + progressCursor + ', cursor=' + cursor);
+  console.log('[readJobCursor] status=' + status + ', stage=' + stage + ', progressCursor=' + progressCursor + ', cursor=' + cursor + ', totalClients=' + totalClients);
+  
+  // DEBUG: Se está rodando mas totalClients=0, alerta
+  if ((status === 'running' || stage === 'database') && totalClients === 0) {
+    console.warn('[readJobCursor-WARNING] Status/stage sugere job rodando mas totalClients=0!');
+  }
   
   // Se job está em execução (status running) ou em pausado (stage paused/database), usar progressCursor
   // Se job está finalizado, usar cursor
@@ -545,12 +551,14 @@ async function run(options = {}) {
   console.log(`[init] totalClientes=${totalClientes}, cursor=${cursor}, ownsJobControl=${ownsJobControl}`);
 
   try {
-    await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
+    const initialState = {
       totalClients: totalClientes,
-      progressCursor: cursor === 0 ? 0 : undefined, // Se iniciando, zera; se retomando, preserva
+      progressCursor: cursor === 0 ? 0 : undefined,
       stage: cursor === 0 ? 'database' : (jobControl && jobControl.stage) || 'database',
       lastAction: 'set_total_clients'
-    });
+    };
+    console.log('[run-save-total] Salvando totalClients=' + totalClientes + ' na aquisição do lock. initialState=' + JSON.stringify(initialState));
+    await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, initialState);
   } catch (e) {
     console.warn('[run] Erro ao definir totalClients:', e && e.message);
   }
