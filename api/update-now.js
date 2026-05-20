@@ -867,14 +867,18 @@ function renderHtmlPage(params) {
           });
 
           const data = await res.json();
+          
+          // ========== HANDLER DE 409: Job já rodando, retry automático ==========
           if (res.status === 409 || (data && data.running)) {
-            showMessage('Atualização em andamento por outro usuário/processo.', 'warn');
-            await fetchStatus();
-            lockUi = false;
-            return;
-          }
-
-          if (!res.ok || !data || data.ok === false) {
+            const retryAfterMs = data.retryAfterMs || (2000 + Math.random() * 3000);
+            const message = data.message || 'Atualização já em andamento. Retentando em ' + Math.round(retryAfterMs / 1000) + 's...';
+            showMessage(message, 'warn');
+            console.log('[startUpdate-409] Job já rodando. Retry em ' + Math.round(retryAfterMs) + 'ms. data=' + JSON.stringify(data).substring(0, 100));
+            
+            // Fazer retry automático após o tempo recomendado
+            setTimeout(async () => {
+              if (!lockUi && manualRunActive) {
+                console.log('[startUpdate-retry] Tentando novamente após 409...');\n                await startUpdate(forceRestart);\n              }\n            }, retryAfterMs);\n            lockUi = false;\n            return;\n          }\n          // ========== FIM HANDLER 409 ==========\n\n          if (!res.ok || !data || data.ok === false) {
             showMessage('Falha ao iniciar atualização: ' + (typeof data?.error === 'string' ? data.error : (data?.error?.message || 'desconhecido')), 'error');
             manualRunActive = false;
             lockUi = false;
@@ -963,6 +967,25 @@ module.exports = async (req, res) => {
         ? Math.max(10000, parsedMax)
         : Math.max(10000, Number(process.env.CRON_MAX_RUNTIME_MS || 150000));
 
+      // ========== VALIDAÇÃO FORTE: Garantir que nenhum outro job esteja rodando ==========
+      const checkBeforeRun = await isJobActiveNow();
+      if (checkBeforeRun && checkBeforeRun.running) {
+        const lockInfo = checkBeforeRun.lockMeta || {};
+        console.error('[update-now-BLOCKED] Job já em execução! Rejeitando chamada. generation=' + (checkBeforeRun.state?.generation) + ', leaseRemainingMs=' + lockInfo.leaseRemainingMs + ', owner=' + checkBeforeRun.state?.owner);
+        return sendJsonResponse(res, {
+          ok: false,
+          running: true,
+          lockState: lockInfo.staleByHeartbeat ? 'active_stale' : 'active',
+          heartbeatAgeMs: lockInfo.heartbeatAgeMs || null,
+          leaseRemainingMs: lockInfo.leaseRemainingMs || 0,
+          staleByHeartbeat: !!lockInfo.staleByHeartbeat,
+          state: checkBeforeRun.state,
+          message: 'Atualização já em progresso. Aguarde conclusão antes de iniciar nova.',
+          reason: 'job_already_running'
+        }, 409);
+      }
+      // ========== FIM VALIDAÇÃO ==========
+
       const result = await runFullUpdateJob({
         batchSize,
         maxMs,
@@ -976,11 +999,15 @@ module.exports = async (req, res) => {
 
       if (!result || !result.ok) {
         if (result && result.running) {
+          const retryAfterMs = 2000 + Math.random() * 3000; // 2-5s de retry recomendado
+          console.warn('[update-now-fallback-409] Job estava rodando no fallback check. Retornar 409. retryAfterMs=' + Math.round(retryAfterMs));
           return sendJsonResponse(res, {
             ok: false,
             running: true,
             reason: result.reason || 'job_already_running',
-            state: result.state
+            state: result.state,
+            retryAfterMs: Math.round(retryAfterMs),
+            message: 'Atualização em andamento. Tentaremos novamente em ' + Math.round(retryAfterMs / 1000) + 's.'
           }, 409);
         }
         return sendJsonResponse(res, {
@@ -1028,6 +1055,11 @@ module.exports = async (req, res) => {
 
   try {
     const active = await isJobActiveNow();
+    if (active && active.running) {
+      console.log('[update-now-GET] Job já em execução. Estado: generation=' + (active.state?.generation) + ', cursor=' + (active.state?.progressCursor || active.state?.cursor) + ', stage=' + active.state?.stage);
+    } else {
+      console.log('[update-now-GET] Job inativo/ocioso. Pronto para nova execução.');
+    }
     const html = renderHtmlPage({
       secret,
       batchSize,
