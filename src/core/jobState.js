@@ -30,6 +30,7 @@ function parseJobStateRow(values) {
   const row = Array.isArray(values) && values.length ? values[0] : [];
 
   if (row.length === 1 && Number.isFinite(Number(row[0]))) {
+    console.log('[parseJobStateRow-legacy] Lendo formato legado com 1 coluna. Apenas cursor preservado.');
     return {
       ...createDefaultJobState(),
       cursor: Math.max(0, Number(row[0]))
@@ -42,6 +43,7 @@ function parseJobStateRow(values) {
     const leaseUntil = Number(row[4]);
 
     if (row.length >= 16) {
+      console.log('[parseJobStateRow-full] Full state com ' + row.length + ' colunas. generation=' + generation + ', totalClients=' + row[15]);
       return {
         status: String(row[0] || 'idle').trim() || 'idle',
         jobId: String(row[1] || '').trim(),
@@ -62,6 +64,7 @@ function parseJobStateRow(values) {
       };
     }
 
+    console.warn('[parseJobStateRow-partial] Partial state com apenas ' + row.length + ' colunas! generation=' + generation + ', totalClients e progressCursor não podem ser lidos!');
     return {
       status: String(row[0] || 'idle').trim() || 'idle',
       jobId: String(row[1] || '').trim(),
@@ -283,7 +286,10 @@ async function acquireJobStateLock(sheets, spreadsheetId, options = {}) {
   await writeJobState(sheets, spreadsheetId, state);
 
   const confirmed = await readJobState(sheets, spreadsheetId);
+  console.log('[acquireJobStateLock-confirm] Após escrever state, confirmed. generation=' + confirmed.generation + ', state.generation=' + state.generation + ', totalClients=' + confirmed.totalClients);
+  
   if (!isSameJobState(confirmed, state)) {
+    console.error('[acquireJobStateLock-mismatch] State foi sobrescrito! confirmed.generation=' + confirmed.generation + ', state.generation=' + state.generation + ', confirmed.jobId=' + confirmed.jobId + ', state.jobId=' + state.jobId);
     const err = new Error('Job lock sobrescrito por outro worker');
     err.code = 'JOB_ALREADY_RUNNING';
     err.state = confirmed;
