@@ -74,33 +74,51 @@ async function updateWelcomeStatus(sheets, spreadsheetId, text) {
 }
 
 async function deleteSheetIfExists(sheets, spreadsheetId, title) {
-  const meta = await sheets.spreadsheets.get({
-    spreadsheetId,
-    fields: 'sheets(properties(sheetId,title))'
-  });
+  const maxAttempts = 4;
+  let attempt = 0;
+  
+  while (attempt < maxAttempts) {
+    try {
+      const meta = await sheets.spreadsheets.get({
+        spreadsheetId,
+        fields: 'sheets(properties(sheetId,title))'
+      });
 
-  const target = (meta.data.sheets || []).find(
-    s => s.properties && s.properties.title === title
-  );
+      const target = (meta.data.sheets || []).find(
+        s => s.properties && s.properties.title === title
+      );
 
-  if (!target || target.properties.sheetId === undefined) {
-    return false;
-  }
+      if (!target || target.properties.sheetId === undefined) {
+        return false;
+      }
 
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: {
-      requests: [
-        {
-          deleteSheet: {
-            sheetId: target.properties.sheetId
-          }
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [
+            {
+              deleteSheet: {
+                sheetId: target.properties.sheetId
+              }
+            }
+          ]
         }
-      ]
-    }
-  });
+      });
 
-  return true;
+      return true;
+    } catch (err) {
+      const msg = String(err && (err.message || err.code || err.status) || '').toLowerCase();
+      const isQuota = msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(err && err.status) === '429' || String(err && err.code) === '429';
+      attempt += 1;
+      if (isQuota && attempt < maxAttempts) {
+        const wait = Math.pow(2, attempt) * 1000;
+        console.warn(`[deleteSheetIfExists] Quota 429 recebido, retry em ${wait}ms (tentativa ${attempt}/${maxAttempts})`);
+        await new Promise(resolve => setTimeout(resolve, wait));
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 async function ensureSheetExists(sheets, spreadsheetId, title) {
