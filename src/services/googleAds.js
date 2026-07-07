@@ -41,6 +41,12 @@ function getMccCandidates() {
 
 function classifyGoogleError(errorInfo) {
   const raw = typeof errorInfo === 'string' ? errorInfo : JSON.stringify(errorInfo || {});
+  if (raw.includes('DEVELOPER_TOKEN_INVALID')) {
+    return {
+      category: 'invalid_developer_token',
+      action: 'validar o DEVELOPER_TOKEN no Google Ads e no ambiente',
+    };
+  }
   if (raw.includes('USER_PERMISSION_DENIED')) {
     return {
       category: 'permission_denied',
@@ -112,8 +118,8 @@ async function getGoogleData(customerId, refreshToken, context = {}) {
   const cliente = context.cliente || 'desconhecido';
   const loginCustomerIds = getMccCandidates();
 
-  if (!isValidGoogleCustomerId(customerId) || !loginCustomerIds.length) {
-    const message = `[${new Date().toISOString()}] platform=GOOGLE cliente="${cliente}" customerId="${customerId || ''}" mccIds="${loginCustomerIds.join(',')}" category="invalid_input" action="validar Customer ID e MCCs" message="customerId deve ter 10 dígitos e MCCs devem existir"`;
+  if (!isValidGoogleCustomerId(customerId)) {
+    const message = `[${new Date().toISOString()}] platform=GOOGLE cliente="${cliente}" customerId="${customerId || ''}" mccIds="${loginCustomerIds.join(',')}" category="invalid_input" action="validar Customer ID" message="customerId deve ter 10 dígitos"`;
     console.error(message);
     try {
       fs.appendFileSync('errors.log', `${message}\n`);
@@ -125,26 +131,18 @@ async function getGoogleData(customerId, refreshToken, context = {}) {
       error: {
         category: 'invalid_input',
         action: 'validar Customer ID e MCCs',
-        message: 'customerId deve ter 10 dígitos e MCCs devem existir'
-      }
-    };
-  }
-
-  let lastErrorInfo = null;
-  let lastLoginCustomerId = '';
-  const attempts = [];
-
-  for (const loginCustomerId of loginCustomerIds) {
-    lastLoginCustomerId = loginCustomerId;
-
-    try {
-      const customer = ads.Customer({
+    async function queryGoogleAccount(loginCustomerId) {
+      const customerOptions = {
         customer_id: customerId,
-        refresh_token: rt,
-        login_customer_id: loginCustomerId
-      });
+        refresh_token: rt
+      };
 
-      // saldo (account budgets)
+      if (loginCustomerId) {
+        customerOptions.login_customer_id = loginCustomerId;
+      }
+
+      const customer = ads.Customer(customerOptions);
+
       const budgetPromise = withTimeout(customer.query(`
         SELECT
           account_budget.adjusted_spending_limit_micros,
@@ -175,14 +173,12 @@ async function getGoogleData(customerId, refreshToken, context = {}) {
       const saldo = saldos.length ? Math.max.apply(null, saldos) : 0;
       let identificador = '';
 
-      // Heurística: se não há budgets, é provável que seja cartão (charge on card)
       if (!saldos.length) {
         identificador = '💳 CARTÃO';
       } else {
         identificador = '🟡 PRÉ-PAGO';
       }
 
-      // gasto de ontem - pode falhar se estamos consultando a partir de um MCC
       let gastoOntem = 0;
       try {
         if (!spendResult.ok) {
@@ -193,8 +189,7 @@ async function getGoogleData(customerId, refreshToken, context = {}) {
       } catch (spendErr) {
         const rawSpend = (spendErr && spendErr.response && JSON.stringify(spendErr.response.errors)) || (spendErr && spendErr.message) || String(spendErr);
         if (rawSpend.includes('REQUESTED_METRICS_FOR_MANAGER')) {
-          // Estamos consultando métricas a partir de um manager/MCC — tratar como conta manager
-          const msg = `[${new Date().toISOString()}] platform=GOOGLE cliente="${cliente}" customerId="${customerId}" loginCustomerId="${loginCustomerId}" category="manager_metrics" action="evitar métricas em MCC" message="requested_metrics_for_manager"`;
+          const msg = `[${new Date().toISOString()}] platform=GOOGLE cliente="${cliente}" customerId="${customerId}" loginCustomerId="${loginCustomerId || ''}" category="manager_metrics" action="evitar métricas em MCC" message="requested_metrics_for_manager"`;
           console.warn(msg);
           try { fs.appendFileSync('errors.log', `${msg} raw=${rawSpend}\n`); } catch (e) { /* ignore */ }
           return {
@@ -204,11 +199,10 @@ async function getGoogleData(customerId, refreshToken, context = {}) {
             gasto7d: 0,
             media: 0,
             dias: 0,
-            loginCustomerId: loginCustomerId,
+            loginCustomerId: loginCustomerId || '',
             identificador: '📂 MANAGER'
           };
         }
-        // se for outro erro, repassamos para o loop de tentativa de MCCs
         throw spendErr;
       }
 
@@ -219,6 +213,24 @@ async function getGoogleData(customerId, refreshToken, context = {}) {
         saldo: saldo,
         gastoOntem: gastoOntem,
         gasto7d: gastoOntem,
+        media: media,
+        dias: dias.toFixed(1),
+        loginCustomerId: loginCustomerId || '',
+        identificador: identificador
+      };
+    }
+
+        message: 'customerId deve ter 10 dígitos e MCCs devem existir'
+      }
+    };
+  }
+    const loginAttempts = loginCustomerIds.length ? [...loginCustomerIds, ''] : [''];
+
+    for (const loginCustomerId of loginAttempts) {
+  let lastErrorInfo = null;
+  let lastLoginCustomerId = '';
+  const attempts = [];
+        return await queryGoogleAccount(loginCustomerId);
         media: media,
         dias: dias.toFixed(1),
         loginCustomerId: loginCustomerId,
