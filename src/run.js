@@ -373,6 +373,7 @@ async function processClienteRow(row, indices) {
     idxCliente,
     idxPlataforma,
     idxCustomerId,
+    idxLoginCustomerId,
     idxGestor,
     idxSupervisor,
     idxRevisao
@@ -384,6 +385,8 @@ async function processClienteRow(row, indices) {
   const gestor = (row[idxGestor] || '').trim();
   const supervisor = idxSupervisor >= 0 ? (row[idxSupervisor] || '').trim() : '';
   const revisao = String(idxRevisao >= 0 ? (row[idxRevisao] || '') : '').trim();
+  const loginCustomerIdRaw = idxLoginCustomerId >= 0 ? String(row[idxLoginCustomerId] || '').trim() : '';
+  const loginCustomerIdNormalized = loginCustomerIdRaw.replace(/\D/g, '');
 
   const customerIdNormalized = id.replace(/\D/g, '');
 
@@ -407,7 +410,12 @@ async function processClienteRow(row, indices) {
         data = await getGoogleData(
           customerIdNormalized,
           process.env.REFRESH_TOKEN,
-          { cliente, plataforma, id: customerIdNormalized }
+          {
+            cliente,
+            plataforma,
+            id: customerIdNormalized,
+            loginCustomerId: loginCustomerIdNormalized
+          }
         );
       }
     }
@@ -527,13 +535,30 @@ async function run(options = {}) {
   );
 
   const getIndex = (name, fallback) => headerMap.has(name.toLowerCase()) ? headerMap.get(name.toLowerCase()) : fallback;
+  const getIndexAny = (names, fallback) => {
+    for (const name of names) {
+      const index = headerMap.get(String(name || '').trim().toLowerCase());
+      if (index !== undefined) {
+        return index;
+      }
+    }
+    return fallback;
+  };
 
-  const idxCliente = getIndex('Cliente', 0);
-  const idxPlataforma = getIndex('Plataforma', 1);
-  const idxCustomerId = getIndex('CustomerID', 2);
-  const idxGestor = getIndex('Gestor', 3);
-  const idxRevisao = getIndex('Revisão', 4);
-  const idxSupervisor = getIndex('Supervisor', -1);
+  const idxCliente = getIndexAny(['Cliente', 'Client'], 0);
+  const idxPlataforma = getIndexAny(['Plataforma', 'Platform'], 1);
+  const idxCustomerId = getIndexAny([
+    'CustomerID',
+    'Customer ID',
+    'Customer Id',
+    'GoogleCustomerId',
+    'Google Customer ID',
+    'Google Customer Id'
+  ], 2);
+  const idxGestor = getIndexAny(['Gestor', 'Manager'], 3);
+  const idxRevisao = getIndexAny(['Revisão', 'Revisao', 'Review'], 4);
+  const idxSupervisor = getIndexAny(['Supervisor', 'Supervisão', 'Supervisao'], -1);
+  const idxLoginCustomerId = getIndexAny(['LoginCustomerId', 'Login Customer ID', 'MCC', 'MCC_ID', 'Login MCC'], -1);
   const totalClientes = clientes.length;
   console.log('[run-init] clientes.length=' + totalClientes);
 
@@ -623,6 +648,7 @@ async function run(options = {}) {
           idxCliente,
           idxPlataforma,
           idxCustomerId,
+          idxLoginCustomerId,
           idxGestor,
           idxSupervisor,
           idxRevisao

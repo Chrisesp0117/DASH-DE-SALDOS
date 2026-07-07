@@ -116,7 +116,10 @@ function summarizeGoogleError(errorInfo) {
 async function getGoogleData(customerId, refreshToken, context = {}) {
   const rt = refreshToken || process.env.REFRESH_TOKEN;
   const cliente = context.cliente || 'desconhecido';
-  const loginCustomerIds = getMccCandidates();
+  const loginCustomerIds = [...new Set([
+    normalizeDigits(context.loginCustomerId),
+    ...getMccCandidates()
+  ])].filter(Boolean);
 
   if (!isValidGoogleCustomerId(customerId)) {
     const message = `[${new Date().toISOString()}] platform=GOOGLE cliente="${cliente}" customerId="${customerId || ''}" mccIds="${loginCustomerIds.join(',')}" category="invalid_input" action="validar Customer ID" message="customerId deve ter 10 dígitos"`;
