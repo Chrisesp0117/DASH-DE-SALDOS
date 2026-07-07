@@ -130,112 +130,111 @@ async function getGoogleData(customerId, refreshToken, context = {}) {
       ok: false,
       error: {
         category: 'invalid_input',
-        action: 'validar Customer ID e MCCs',
-    async function queryGoogleAccount(loginCustomerId) {
-      const customerOptions = {
-        customer_id: customerId,
-        refresh_token: rt
-      };
-
-      if (loginCustomerId) {
-        customerOptions.login_customer_id = loginCustomerId;
-      }
-
-      const customer = ads.Customer(customerOptions);
-
-      const budgetPromise = withTimeout(customer.query(`
-        SELECT
-          account_budget.adjusted_spending_limit_micros,
-          account_budget.approved_spending_limit_micros,
-          account_budget.amount_served_micros
-        FROM account_budget
-      `), 20000, 'google budget query');
-
-      const spendPromise = withTimeout(customer.query(`
-        SELECT
-          metrics.cost_micros
-        FROM customer
-        WHERE segments.date DURING YESTERDAY
-      `).then(rows => ({ ok: true, rows })).catch(err => ({ ok: false, err })), 20000, 'google spend query');
-
-      const budgetRows = await budgetPromise;
-      const spendResult = await spendPromise;
-
-      const saldos = (budgetRows || []).map(function (r) {
-        const acc = r.account_budget || {};
-        const adj = acc.adjusted_spending_limit_micros || 0;
-        const app = acc.approved_spending_limit_micros || 0;
-        const limite = (adj || app) / 1000000;
-        const gasto = (acc.amount_served_micros || 0) / 1000000;
-        return limite - gasto;
-      }).filter(function (v) { return v > 0; });
-
-      const saldo = saldos.length ? Math.max.apply(null, saldos) : 0;
-      let identificador = '';
-
-      if (!saldos.length) {
-        identificador = '💳 CARTÃO';
-      } else {
-        identificador = '🟡 PRÉ-PAGO';
-      }
-
-      let gastoOntem = 0;
-      try {
-        if (!spendResult.ok) {
-          throw spendResult.err;
-        }
-        const spendRows = spendResult.rows;
-        gastoOntem = (spendRows && spendRows[0] && spendRows[0].metrics && spendRows[0].metrics.cost_micros) ? spendRows[0].metrics.cost_micros / 1000000 : 0;
-      } catch (spendErr) {
-        const rawSpend = (spendErr && spendErr.response && JSON.stringify(spendErr.response.errors)) || (spendErr && spendErr.message) || String(spendErr);
-        if (rawSpend.includes('REQUESTED_METRICS_FOR_MANAGER')) {
-          const msg = `[${new Date().toISOString()}] platform=GOOGLE cliente="${cliente}" customerId="${customerId}" loginCustomerId="${loginCustomerId || ''}" category="manager_metrics" action="evitar métricas em MCC" message="requested_metrics_for_manager"`;
-          console.warn(msg);
-          try { fs.appendFileSync('errors.log', `${msg} raw=${rawSpend}\n`); } catch (e) { /* ignore */ }
-          return {
-            ok: true,
-            saldo: 0,
-            gastoOntem: 0,
-            gasto7d: 0,
-            media: 0,
-            dias: 0,
-            loginCustomerId: loginCustomerId || '',
-            identificador: '📂 MANAGER'
-          };
-        }
-        throw spendErr;
-      }
-
-      const media = gastoOntem;
-      const dias = media > 0 ? saldo / media : 0;
-
-      return {
-        saldo: saldo,
-        gastoOntem: gastoOntem,
-        gasto7d: gastoOntem,
-        media: media,
-        dias: dias.toFixed(1),
-        loginCustomerId: loginCustomerId || '',
-        identificador: identificador
-      };
-    }
-
-        message: 'customerId deve ter 10 dígitos e MCCs devem existir'
+        action: 'validar Customer ID',
+        message: 'customerId deve ter 10 dígitos'
       }
     };
   }
-    const loginAttempts = loginCustomerIds.length ? [...loginCustomerIds, ''] : [''];
 
-    for (const loginCustomerId of loginAttempts) {
+  async function queryGoogleAccount(loginCustomerId) {
+    const customerOptions = {
+      customer_id: customerId,
+      refresh_token: rt
+    };
+
+    if (loginCustomerId) {
+      customerOptions.login_customer_id = loginCustomerId;
+    }
+
+    const customer = ads.Customer(customerOptions);
+
+    const budgetPromise = withTimeout(customer.query(`
+      SELECT
+        account_budget.adjusted_spending_limit_micros,
+        account_budget.approved_spending_limit_micros,
+        account_budget.amount_served_micros
+      FROM account_budget
+    `), 20000, 'google budget query');
+
+    const spendPromise = withTimeout(customer.query(`
+      SELECT
+        metrics.cost_micros
+      FROM customer
+      WHERE segments.date DURING YESTERDAY
+    `).then(rows => ({ ok: true, rows })).catch(err => ({ ok: false, err })), 20000, 'google spend query');
+
+    const budgetRows = await budgetPromise;
+    const spendResult = await spendPromise;
+
+    const saldos = (budgetRows || []).map(function (r) {
+      const acc = r.account_budget || {};
+      const adj = acc.adjusted_spending_limit_micros || 0;
+      const app = acc.approved_spending_limit_micros || 0;
+      const limite = (adj || app) / 1000000;
+      const gasto = (acc.amount_served_micros || 0) / 1000000;
+      return limite - gasto;
+    }).filter(function (v) { return v > 0; });
+
+    const saldo = saldos.length ? Math.max.apply(null, saldos) : 0;
+    let identificador = '';
+
+    if (!saldos.length) {
+      identificador = '💳 CARTÃO';
+    } else {
+      identificador = '🟡 PRÉ-PAGO';
+    }
+
+    let gastoOntem = 0;
+    try {
+      if (!spendResult.ok) {
+        throw spendResult.err;
+      }
+      const spendRows = spendResult.rows;
+      gastoOntem = (spendRows && spendRows[0] && spendRows[0].metrics && spendRows[0].metrics.cost_micros) ? spendRows[0].metrics.cost_micros / 1000000 : 0;
+    } catch (spendErr) {
+      const rawSpend = (spendErr && spendErr.response && JSON.stringify(spendErr.response.errors)) || (spendErr && spendErr.message) || String(spendErr);
+      if (rawSpend.includes('REQUESTED_METRICS_FOR_MANAGER')) {
+        const msg = `[${new Date().toISOString()}] platform=GOOGLE cliente="${cliente}" customerId="${customerId}" loginCustomerId="${loginCustomerId || ''}" category="manager_metrics" action="evitar métricas em MCC" message="requested_metrics_for_manager"`;
+        console.warn(msg);
+        try { fs.appendFileSync('errors.log', `${msg} raw=${rawSpend}\n`); } catch (e) { /* ignore */ }
+        return {
+          ok: true,
+          saldo: 0,
+          gastoOntem: 0,
+          gasto7d: 0,
+          media: 0,
+          dias: 0,
+          loginCustomerId: loginCustomerId || '',
+          identificador: '📂 MANAGER'
+        };
+      }
+      throw spendErr;
+    }
+
+    const media = gastoOntem;
+    const dias = media > 0 ? saldo / media : 0;
+
+    return {
+      saldo: saldo,
+      gastoOntem: gastoOntem,
+      gasto7d: gastoOntem,
+      media: media,
+      dias: dias.toFixed(1),
+      loginCustomerId: loginCustomerId || '',
+      identificador: identificador
+    };
+  }
+
   let lastErrorInfo = null;
   let lastLoginCustomerId = '';
   const attempts = [];
-        return await queryGoogleAccount(loginCustomerId);
-        media: media,
-        dias: dias.toFixed(1),
-        loginCustomerId: loginCustomerId,
-        identificador: identificador
-      };
+  const loginAttempts = loginCustomerIds.length ? [...loginCustomerIds, ''] : [''];
+
+  for (const loginCustomerId of loginAttempts) {
+    lastLoginCustomerId = loginCustomerId;
+
+    try {
+      return await queryGoogleAccount(loginCustomerId);
     } catch (err) {
       const rawErr = (err && err.response && err.response.errors) ? err.response.errors : (err && err.message) ? err.message : err;
       lastErrorInfo = rawErr;
