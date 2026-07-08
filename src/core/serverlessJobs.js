@@ -16,6 +16,17 @@ const { generateBlocosPorGestor } = require('./visualBlocks');
 const { ensureDashboardsForAllGestores, atomicRefreshAllDashboards } = require('./gestorDashboards');
 const { generateReport } = require('./reportGenerator');
 
+const VERCEL_HARD_LIMIT_MS = 180000;
+const SAFETY_MARGIN_MS = 30000;
+const DEFAULT_SAFE_MAX_MS = VERCEL_HARD_LIMIT_MS - SAFETY_MARGIN_MS;
+
+function getSafeMaxMs(value) {
+  const parsed = Number(value);
+  const fallback = Number(process.env.CRON_MAX_RUNTIME_MS || DEFAULT_SAFE_MAX_MS);
+  const raw = Number.isFinite(parsed) && parsed >= 10000 ? parsed : fallback;
+  return Math.max(10000, Math.min(raw, DEFAULT_SAFE_MAX_MS));
+}
+
 function readHeader(req, name) {
   const headers = req && req.headers;
 
@@ -133,7 +144,7 @@ async function triggerNextCycle(req, options = {}) {
   const incomingDepth = Number(readHeader(req, 'x-auto-chain-depth') || 0);
   const depth = Number.isFinite(incomingDepth) && incomingDepth >= 0 ? incomingDepth : 0;
   // Permite mais elos para que a atualização manual não pare cedo demais em bases maiores.
-  const maxDepth = Math.max(0, Number(process.env.AUTO_CHAIN_MAX_DEPTH || 25));
+  const maxDepth = Math.max(0, Number(process.env.AUTO_CHAIN_MAX_DEPTH || 50));
   if (depth >= maxDepth) {
     return { scheduled: false, reason: 'max_depth_reached', depth, maxDepth };
   }
@@ -230,7 +241,8 @@ async function runFullUpdateJob(options = {}) {
     jobControl = await acquireJobStateLock(sheets, spreadsheetId, {
       leaseMs: 60000,
       resetCursor,
-      owner: options.owner
+      owner: options.owner,
+      force: options.force === true
     });
     console.log('[diagnostic] acquired job lock', { jobId: jobControl.jobId, generation: jobControl.generation, leaseUntil: jobControl.leaseUntil });
   } catch (e) {
@@ -247,7 +259,7 @@ async function runFullUpdateJob(options = {}) {
 
   const heartbeatTimer = await startHeartbeatTimer(sheets, spreadsheetId, jobControl, DEFAULT_HEARTBEAT_INTERVAL_MS);
   const startTime = Date.now();
-  const maxMs = Math.max(10000, Number(options.maxMs || process.env.CRON_MAX_RUNTIME_MS || 150000));
+  const maxMs = getSafeMaxMs(options.maxMs);
   let iterations = 0;
   let totalProcessed = 0;
   let result = null;
@@ -516,6 +528,7 @@ async function runDashboardJob(options = {}) {
 module.exports = {
   assertCronAuth,
   getCronSecretFromRequest,
+  getSafeMaxMs,
   triggerNextCycle,
   sendJson,
   runUpdateJob,

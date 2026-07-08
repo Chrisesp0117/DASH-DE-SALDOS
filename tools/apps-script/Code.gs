@@ -1,3 +1,15 @@
+// =============================================================================
+// SUAS VARIÁVEIS — edite aqui (preferir Config.gs se usar arquivos separados)
+// =============================================================================
+
+const FINANCE_DASH_HOST = 'https://dash-de-saldos.vercel.app';
+const CRON_SECRET = 'crs_8f3d7a9c1e4b6f2d9a0c7e5b1f3d8a6c4e2f9b1d7a0c5';
+const URL_UPDATE_FULL = FINANCE_DASH_HOST + '/api/cron/update-full';
+const URL_UPDATE_NOW = FINANCE_DASH_HOST + '/api/update-now';
+const URL_UPDATE_STATUS = FINANCE_DASH_HOST + '/api/update-status';
+const POPUP_LARGURA = 680;
+const POPUP_ALTURA = 720;
+
 const UPDATE_URL_PROP = 'UPDATE_URL';
 const CRON_SECRET_PROP = 'CRON_SECRET';
 const BATCH_SIZE_PROP = 'BATCH_SIZE';
@@ -7,6 +19,28 @@ const SAFETY_MARGIN_MS_PROP = 'SAFETY_MARGIN_MS';
 const PAUSE_MS_PROP = 'PAUSE_BETWEEN_CALLS_MS';
 const START_CURSOR_PROP = 'START_CURSOR';
 const AUTO_LOG_SHEET = 'AUTO_LOG';
+
+const DEFAULT_HOST = FINANCE_DASH_HOST;
+const DEFAULT_CRON_SECRET = CRON_SECRET;
+const DEFAULT_UPDATE_URL = URL_UPDATE_FULL;
+
+function getEffectiveConfig_() {
+  const cfg = getConfig_();
+  return {
+    secret: cfg.secret || DEFAULT_CRON_SECRET,
+    updateUrl: cfg.updateUrl || DEFAULT_UPDATE_URL,
+    batchSize: cfg.batchSize,
+    maxCalls: cfg.maxCalls,
+    maxRuntimeMs: cfg.maxRuntimeMs,
+    safetyMarginMs: cfg.safetyMarginMs,
+    pauseMs: cfg.pauseMs
+  };
+}
+
+function getUpdateNowUrl_() {
+  const cfg = getEffectiveConfig_();
+  return URL_UPDATE_NOW + '?secret=' + encodeURIComponent(cfg.secret);
+}
 
 function readFirstProp_(keys) {
   const keyList = Array.isArray(keys) ? keys : [keys];
@@ -119,6 +153,117 @@ function parseJson_(text) {
     return JSON.parse(text || '{}');
   } catch (_) {
     return null;
+  }
+}
+
+function buildStatusUrl_(baseUrl) {
+  const normalized = String(baseUrl || '').trim();
+  if (!normalized) return '';
+  return normalized
+    .replace(/\/api\/update-now(\?.*)?$/i, '/api/update-status')
+    .replace(/\/api\/update(\?.*)?$/i, '/api/update-status')
+    .replace(/\/api\/cron\/update-full(\?.*)?$/i, '/api/update-status');
+}
+
+function buildUpdateFullUrl_(baseUrl) {
+  const normalized = String(baseUrl || '').trim();
+  if (!normalized) return '';
+  try {
+    const match = normalized.match(/^(https?:\/\/[^/?#]+)/i);
+    if (match && match[1]) {
+      return match[1] + '/api/cron/update-full';
+    }
+  } catch (_) {}
+  return normalized
+    .replace(/\/api\/update-now(\?.*)?$/i, '/api/cron/update-full')
+    .replace(/\/api\/update(\?.*)?$/i, '/api/cron/update-full');
+}
+
+function abrirLinkPopUp() {
+  const url = getUpdateNowUrl_();
+  const htmlContent = `
+    <html>
+      <head>
+        <script>
+          function abrirJanela() {
+            var largura = ${POPUP_LARGURA};
+            var altura = ${POPUP_ALTURA};
+            var esquerda = (screen.width - largura) / 2;
+            var topo = (screen.height - altura) / 2;
+
+            window.open('${url}', 'FINANCE DASH',
+              'width=' + largura + ', height=' + altura +
+              ', top=' + topo + ', left=' + esquerda +
+              ', scrollbars=yes, resizable=yes');
+
+            setTimeout(function() {
+              google.script.host.close();
+            }, 1000);
+          }
+        </script>
+      </head>
+      <body onload="abrirJanela()" style="font-family: sans-serif; text-align: center; padding-top: 20px;">
+        <p>Abrindo janela de atualizacao...</p>
+        <button onclick="abrirJanela()">Clique aqui se nao abrir</button>
+      </body>
+    </html>
+  `;
+
+  SpreadsheetApp.getUi().showModalDialog(
+    HtmlService.createHtmlOutput(htmlContent).setWidth(380).setHeight(160),
+    'FINANCE DASH'
+  );
+}
+
+function atualizarPlanilhaAutomaticamente() {
+  const cfg = getEffectiveConfig_();
+  const cronSecret = cfg.secret;
+  const urlVercel = URL_UPDATE_FULL;
+  const statusUrl = URL_UPDATE_STATUS;
+
+  try {
+    const statusRes = UrlFetchApp.fetch(statusUrl, {
+      method: 'get',
+      headers: {
+        'x-cron-secret': cronSecret,
+        accept: 'application/json'
+      },
+      muteHttpExceptions: true
+    });
+
+    if (statusRes.getResponseCode() >= 200 && statusRes.getResponseCode() < 300) {
+      const status = JSON.parse(statusRes.getContentText() || '{}');
+      if (status.running) {
+        Logger.log('Job ja em andamento — pulando ciclo em: ' + new Date());
+        return;
+      }
+    }
+  } catch (e) {
+    Logger.log('Aviso ao consultar status: ' + (e && e.message ? e.message : String(e)));
+  }
+
+  try {
+    const resposta = UrlFetchApp.fetch(urlVercel, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-cron-secret': cronSecret
+      },
+      payload: JSON.stringify({ timestamp: new Date().toISOString() }),
+      muteHttpExceptions: true
+    });
+
+    const statusCode = resposta.getResponseCode();
+    if (statusCode >= 200 && statusCode < 300) {
+      Logger.log('Atualizacao disparada com sucesso em: ' + new Date());
+    } else if (statusCode === 409) {
+      Logger.log('Atualizacao ja em andamento — nenhuma acao necessaria.');
+    } else {
+      Logger.log('Erro ao chamar API: ' + statusCode + ' - ' + resposta.getContentText());
+    }
+  } catch (erro) {
+    Logger.log('Erro na execucao: ' + (erro && erro.message ? erro.message : String(erro)));
   }
 }
 
