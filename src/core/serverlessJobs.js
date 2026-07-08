@@ -163,7 +163,13 @@ async function triggerNextCycle(req, options = {}) {
   });
 
   const targetUrl = `${baseUrl}${path}${params.toString() ? `?${params.toString()}` : ''}`;
-  const timeoutMs = Math.max(1000, Number(process.env.AUTO_CHAIN_FETCH_TIMEOUT_MS || 5000));
+  // Timeout do fetch de CONFIRMAÇÃO da continuação (não é o timeout do job em si).
+  // Era 5000ms por padrão, curto demais para cold starts comuns na Vercel — o que
+  // fazia o cliente tratar "não confirmei a tempo" como "falhou" e cair em fallback
+  // com force=1 prematuro. 8000ms dá mais margem sem atrasar o caso feliz, e o
+  // front-end (update-now-ui.js) agora reconfere /api/update-status antes de
+  // desistir mesmo quando esse timeout aqui é atingido.
+  const timeoutMs = Math.max(1000, Number(process.env.AUTO_CHAIN_FETCH_TIMEOUT_MS || 8000));
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const timeout = setTimeout(() => {
     if (controller) {

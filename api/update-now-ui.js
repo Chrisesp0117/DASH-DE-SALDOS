@@ -647,7 +647,13 @@ function renderHtmlPage(params) {
           autoResumeTimer = null; autoResumeAttempts += 1;
           if (!lockUi && manualRunActive && chainFallbackNeeded) {
             showMessage('Retomando (fallback ' + autoResumeAttempts + '/8)...', 'warn');
-            await startUpdate(true);
+            // IMPORTANTE: o fallback automático NUNCA deve usar force=true.
+            // Se a continuação real ainda estiver rodando (cold start), uma chamada
+            // sem force recebe um 409 limpo e o cliente volta a monitorar — em vez de
+            // sobrescrever o lock legítimo e causar JOB_INTERRUPTED na execução real.
+            // force=true fica reservado exclusivamente para o clique explícito no
+            // botão "Forçar" (gated por staleByHeartbeat).
+            await startUpdate(true, false);
           }
         }, 300);
       }
@@ -753,17 +759,51 @@ function renderHtmlPage(params) {
         }
       }
 
-      async function startUpdate(forceRestart) {
+      function delay(ms) {
+        return new Promise(function(resolve) { setTimeout(resolve, ms); });
+      }
+
+      async function confirmContinuationOrFallback() {
+        // Reconfere /api/update-status mais 1-2 vezes, com intervalo maior (5-8s),
+        // antes de concluir que a continuação realmente falhou. Isso cobre o caso
+        // comum de cold start da Vercel: a invocação seguinte já foi disparada e
+        // está processando, só não respondeu ao fetch de confirmação a tempo.
+        const attemptsDelaysMs = [5000, 8000];
+        for (let i = 0; i < attemptsDelaysMs.length; i++) {
+          await delay(attemptsDelaysMs[i]);
+          if (!manualRunActive || lockUi) return; // usuário/estado mudou nesse meio-tempo
+          const statusData = await fetchStatus();
+          if (statusData && (statusData.running || statusData.finished)) {
+            chainFallbackNeeded = false;
+            pushActivity('Continuação confirmada via status.', 'info');
+            updateButtonStates();
+            return;
+          }
+        }
+        chainFallbackNeeded = true;
+        pushActivity('Continuação não confirmada após reconferência. Fallback necessário.', 'warn');
+        updateButtonStates();
+        scheduleAutoResume();
+      }
+
+      async function startUpdate(isResume, forceFlag) {
+        // isResume: controla só a UX (texto "Retomando...", preserva progresso exibido).
+        // forceFlag: controla o que de fato é enviado ao servidor (?force=1).
+        // Os dois eram a mesma coisa antes (um único "forceRestart"), o que fazia o
+        // fallback automático (retomada) mandar force=1 sem querer. Por padrão, se
+        // forceFlag não for informado, cai para false (nunca força implicitamente) —
+        // só o botão "Forçar" passa forceFlag=true explicitamente.
+        forceFlag = forceFlag === true;
         clearAutoResumeTimer();
-        if (!forceRestart) { chainFallbackNeeded = false; lastContinuationReason = ''; }
+        if (!isResume) { chainFallbackNeeded = false; lastContinuationReason = ''; }
         autoResumeAttempts = 0; lastAutoResumeCursor = -1;
         const wasActive = manualRunActive;
         manualRunActive = true; lockUi = true;
         if (!wasActive || updateStartTime <= 0) updateStartTime = Date.now();
         const prevState = Object.assign({}, currentState);
         updateButtonStates();
-        showMessage(forceRestart ? 'Retomando atualização...' : 'Iniciando atualização...', 'warn');
-        if (!forceRestart) pushActivity('Iniciando atualização', 'info');
+        showMessage(isResume ? 'Retomando atualização...' : 'Iniciando atualização...', 'warn');
+        if (!isResume) pushActivity('Iniciando atualização', 'info');
 
         try {
           const statusData = await fetchStatus();
@@ -771,12 +811,12 @@ function renderHtmlPage(params) {
             showMessage('Atualização já em andamento. Monitorando progresso...', 'info');
             lockUi = false; updateButtonStates(); return;
           }
-          if (forceRestart && prevState.displayCursor > 0 && currentState.displayCursor < prevState.displayCursor) {
+          if (isResume && prevState.displayCursor > 0 && currentState.displayCursor < prevState.displayCursor) {
             currentState.displayCursor = prevState.displayCursor;
             currentState.totalClients = Math.max(prevState.totalClients || 0, currentState.totalClients || 0);
             updateProgressDisplay();
           }
-          const query = new URLSearchParams({ batchSize: batchSize, force: forceRestart ? '1' : force, reset: reset, databaseOnly: databaseOnly, owner: ownerId, maxMs: maxMsParam }).toString();
+          const query = new URLSearchParams({ batchSize: batchSize, force: forceFlag ? '1' : force, reset: reset, databaseOnly: databaseOnly, owner: ownerId, maxMs: maxMsParam }).toString();
           const res = await fetch('/api/update-now?' + query, {
             method: 'POST',
             headers: { accept: 'application/json', 'x-cron-secret': secret },
@@ -796,8 +836,21 @@ function renderHtmlPage(params) {
           }
           if (data.continuation) {
             lastContinuationReason = String(data.continuation.reason || '');
-            chainFallbackNeeded = data.continuation.scheduled === false;
-            if (chainFallbackNeeded) pushActivity('Chain falhou: ' + lastContinuationReason, 'warn');
+            if (data.continuation.scheduled === false) {
+              if (lastContinuationReason === 'request_timeout') {
+                // Timeout na confirmação NÃO é o mesmo que "falhou": a invocação seguinte
+                // pode só estar em cold start e já estar rodando. Reconfere o status antes
+                // de acionar qualquer fallback local (que poderia disparar force=1 à toa).
+                chainFallbackNeeded = false;
+                pushActivity('Continuação não confirmada (timeout). Reconferindo status...', 'warn');
+                confirmContinuationOrFallback();
+              } else {
+                chainFallbackNeeded = true;
+                pushActivity('Chain falhou: ' + lastContinuationReason, 'warn');
+              }
+            } else {
+              chainFallbackNeeded = false;
+            }
           } else if (data.finished) chainFallbackNeeded = false;
 
           showMessage(data.finished ? 'Atualização concluída!' : (chainFallbackNeeded ? 'Fatia ok. Tentando continuar localmente...' : 'Fatia ok. Continuação server-side...'), data.finished ? 'success' : 'warn');
@@ -810,9 +863,12 @@ function renderHtmlPage(params) {
         }
       }
 
-      startBtn.addEventListener('click', function() { startUpdate(false); });
+      startBtn.addEventListener('click', function() { startUpdate(false, false); });
       refreshBtn.addEventListener('click', fetchStatus);
-      forceBtn.addEventListener('click', function() { startUpdate(true); });
+      // Clique explícito no botão "Forçar" (só aparece com staleByHeartbeat=true):
+      // aqui sim faz sentido mandar force=1, pois é decisão humana sobre um lock
+      // que o próprio servidor já confirmou estar travado.
+      forceBtn.addEventListener('click', function() { startUpdate(true, true); });
 
       currentState = Object.assign({}, initialState, { displayCursor: initialState.cursor || 0 });
       if (currentState.running || currentState.displayCursor > 0) manualRunActive = true;

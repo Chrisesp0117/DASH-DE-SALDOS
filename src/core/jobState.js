@@ -273,7 +273,13 @@ async function acquireJobStateLock(sheets, spreadsheetId, options = {}) {
   try {
     const fresh = await readJobState(sheets, spreadsheetId);
     const lockMeta = getJobLockMeta(fresh);
-    if (lockMeta.running && !options.force) {
+    // Defesa em profundidade: mesmo com options.force=true, só se pode sobrescrever
+    // um lock que está genuinamente parado (stale) ou que não está mais rodando.
+    // Antes, `force` pulava essa checagem por completo, o que permitia que uma
+    // chamada forçada (ex.: fallback automático do front-end) sobrescrevesse o
+    // lock de uma execução legítima que acabou de assumi-lo (corrida de milissegundos).
+    const canOverride = !lockMeta.running || lockMeta.staleByHeartbeat;
+    if (lockMeta.running && !(options.force && canOverride)) {
       const err = new Error('Job already running by another worker');
       err.code = 'JOB_ALREADY_RUNNING';
       err.state = fresh;
