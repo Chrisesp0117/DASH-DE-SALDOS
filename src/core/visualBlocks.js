@@ -259,18 +259,19 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
     // Dados com cores alternadas e bordas
     const maxLen = Math.max(plataformas.GOOGLE.length, plataformas.META.length);
     for (let i = 0; i < maxLen; i++) {
-      const g = plataformas.GOOGLE[i] || { cliente: '-', saldo: '-', gastoMedio: '-', dias: '-' };
-      const m = plataformas.META[i] || { cliente: '-', saldo: '-', gastoMedio: '-', dias: '-' };
+      const g = plataformas.GOOGLE[i] || { cliente: '-', saldo: '-', gastoOntem: '-', dias: '-' };
+      const m = plataformas.META[i] || { cliente: '-', saldo: '-', gastoOntem: '-', dias: '-' };
       values.push([
         g.cliente, g.saldo, g.gastoOntem, g.dias, '',
         m.cliente, m.saldo, m.gastoOntem, m.dias
       ]);
 
       // Função para checar se deve destacar
-      function isCritical(diasValue) {
-        if (!diasValue || diasValue === '-') return false;
+      function isCritical(diasValue, gastoOntemValue) {
+        if ((!diasValue || diasValue === '-') && (!gastoOntemValue || gastoOntemValue === '-')) return false;
         const diasNum = parseDias(diasValue);
-        return diasNum > 0 && diasNum <= 7;
+        const gastoOntemNum = parseLocaleNumber(gastoOntemValue);
+        return (diasNum !== null && diasNum <= 7) || (gastoOntemNum !== null && gastoOntemNum <= 0);
       }
       // Cores base por plataforma
       const googleBaseColor = (i % 2 === 0) ? theme.googleRowLight : theme.googleRowDark;
@@ -283,7 +284,7 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
         right: { style: 'SOLID', color: theme.border }
       };
       // Google: colunas 0-3
-      if (isCritical(g.dias)) {
+      if (isCritical(g.dias, g.gastoOntem)) {
         formatRequests.push({
           repeatCell: {
             range: { sheetId: null, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 0, endColumnIndex: 4 },
@@ -301,7 +302,7 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
         });
       }
       // Meta: colunas 5-8
-      if (isCritical(m.dias)) {
+      if (isCritical(m.dias, m.gastoOntem)) {
         formatRequests.push({
           repeatCell: {
             range: { sheetId: null, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 5, endColumnIndex: 9 },

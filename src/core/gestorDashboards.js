@@ -123,9 +123,35 @@ function parseDiasRestantes(value) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function parseLocaleNumber(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  const raw = String(value || '').trim();
+  if (!raw) {
+    return null;
+  }
+
+  let cleaned = raw.replace(/[^\d,.-]/g, '');
+  if (!cleaned) {
+    return null;
+  }
+
+  if (cleaned.includes(',') && cleaned.includes('.')) {
+    cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+  } else if (cleaned.includes(',')) {
+    cleaned = cleaned.replace(',', '.');
+  }
+
+  const numeric = Number(cleaned);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
 function isCriticalRow(row) {
   const dias = parseDiasRestantes(row.duracao);
-  return dias !== null && dias < 7;
+  const gastoOntem = parseLocaleNumber(row.gastoOntem);
+  return (dias !== null && dias <= 7) || (gastoOntem !== null && gastoOntem <= 0);
 }
 
 function collectDashboardRows(databaseRows, gestor) {
@@ -148,7 +174,8 @@ function collectDashboardRows(databaseRows, gestor) {
       saldo: String(row[3] || '').trim(),
       gastoMedio: String(row[5] || '').trim(),
       duracao: String(row[6] || '').trim(),
-      critical: isCriticalRow({ duracao: row[6] })
+      gastoOntem: parseLocaleNumber(row[5]),
+      critical: isCriticalRow({ duracao: row[6], gastoOntem: row[5] })
     };
 
     if (plataforma === 'META') {
