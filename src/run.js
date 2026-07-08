@@ -393,6 +393,7 @@ async function processClienteRow(row, indices) {
   let data;
   let obs = '';
   let processStatus = 'Atualizada';
+  const writeTimestamp = new Date();
 
   const shouldProcess = revisao.toLowerCase() === 'ok';
 
@@ -439,10 +440,10 @@ async function processClienteRow(row, indices) {
     }
   }
 
-  const rowData = data ? buildRow(cliente, plataforma, data) : null;
+  const rowData = data ? buildRow(cliente, plataforma, data, writeTimestamp) : null;
 
   return [
-    rowData ? rowData.data : new Date().toISOString(),
+    rowData ? rowData.data : formatLastUpdatePTBR(writeTimestamp),
     cliente,
     plataforma,
     rowData ? rowData.saldoFormatado : '-',
@@ -453,7 +454,7 @@ async function processClienteRow(row, indices) {
     supervisor,
     processStatus,
     obs,
-    new Date().toISOString(),
+    rowData ? rowData.dataIso : writeTimestamp.toISOString(),
     rowData ? rowData.identificador : ''
   ];
 }

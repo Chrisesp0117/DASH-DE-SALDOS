@@ -17,11 +17,34 @@ function formatDiasHoras(diasValue) {
   return `${dd} dias e ${hh} horas`;
 }
 
-function buildRow(cliente, plataforma, data) {
+function formatTimestampPTBR(date = new Date()) {
+  const value = date instanceof Date ? date : new Date(date);
+  const safeDate = Number.isNaN(value.getTime()) ? new Date() : value;
+
+  const datePart = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Manaus',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  }).format(safeDate);
+
+  const timePart = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Manaus',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(safeDate);
+
+  return `${datePart} às ${timePart}`;
+}
+
+function buildRow(cliente, plataforma, data, timestamp = new Date()) {
   const isMetaCard = plataforma === 'META' && data && data.identificador === '💳 CARTÃO';
+  const writeTimestamp = timestamp instanceof Date ? timestamp : new Date(timestamp);
+  const safeTimestamp = Number.isNaN(writeTimestamp.getTime()) ? new Date() : writeTimestamp;
   // Também retorna campos formatados para uso na DATABASE enriquecida
   return {
-    data: new Date().toLocaleDateString('pt-BR'),
+    data: formatTimestampPTBR(safeTimestamp),
+    dataIso: safeTimestamp.toISOString(),
     cliente,
     plataforma,
     saldo: data.saldo === null || data.saldo === undefined ? null : Number(data.saldo),
