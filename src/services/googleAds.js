@@ -27,18 +27,6 @@ function isValidGoogleCustomerId(value) {
   return /^\d{10}$/.test(normalizeDigits(value));
 }
 
-function getMccCandidates() {
-  const candidates = [
-    process.env.MCC_ID,
-    process.env.MCC_FALLBACK_1,
-    process.env.MCC_FALLBACK_2
-  ]
-    .map(normalizeDigits)
-    .filter(Boolean);
-
-  return [...new Set(candidates)];
-}
-
 function classifyGoogleError(errorInfo) {
   const raw = typeof errorInfo === 'string' ? errorInfo : JSON.stringify(errorInfo || {});
   if (raw.includes('DEVELOPER_TOKEN_INVALID')) {
@@ -117,8 +105,7 @@ async function getGoogleData(customerId, refreshToken, context = {}) {
   const rt = refreshToken || process.env.REFRESH_TOKEN;
   const cliente = context.cliente || 'desconhecido';
   const loginCustomerIds = [...new Set([
-    normalizeDigits(context.loginCustomerId),
-    ...getMccCandidates()
+    normalizeDigits(context.loginCustomerId)
   ])].filter(Boolean);
 
   if (!isValidGoogleCustomerId(customerId)) {
