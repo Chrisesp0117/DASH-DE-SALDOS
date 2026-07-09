@@ -103,23 +103,88 @@ function serializeJobState(state) {
   ]];
 }
 
-async function readJobState(sheets, spreadsheetId) {
-  try {
-    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: JOB_STATE_RANGE });
-    return parseJobStateRow(response.data.values || []);
-  } catch (error) {
-    try {
-      const cursorResponse = await sheets.spreadsheets.values.get({ spreadsheetId, range: JOB_STATE_LEGACY_CURSOR_RANGE });
-      const value = cursorResponse.data.values && cursorResponse.data.values[0] && cursorResponse.data.values[0][0];
-      const parsed = Number(value);
-      if (Number.isFinite(parsed) && parsed >= 0) {
-        return { ...createDefaultJobState(), cursor: parsed };
-      }
-    } catch (_) {
-      // ignore legacy read errors
-    }
+function describeError(error) {
+  return String(error && (error.message || error.code || error.status) || error || '');
+}
 
-    return createDefaultJobState();
+// Erro indicando que a aba/range de fato não existe (ex.: planilha nova, ainda
+// sem a aba JOB_STATE criada). Nesse caso é correto tratar como estado vazio.
+function isRangeNotFoundError(error) {
+  const msg = String(error && error.message || '').toLowerCase();
+  const status = String(error && (error.status || error.code) || '');
+  if (status === '400' && (msg.includes('unable to parse range') || msg.includes('not found'))) {
+    return true;
+  }
+  if (status === '404') return true;
+  if (msg.includes('unable to parse range')) return true;
+  return false;
+}
+
+// Erro transitório (rate limit, timeout, indisponibilidade momentânea da API).
+// Nesse caso o correto é tentar de novo com backoff, nunca fingir "generation=0".
+function isTransientError(error) {
+  const msg = String(error && (error.message || '') || '').toLowerCase();
+  const status = String(error && (error.status || error.code) || '');
+  const isQuota = msg.includes('quota exceeded') || msg.includes('resource_exhausted') || status === '429';
+  const isServerError = status === '500' || status === '502' || status === '503' || status === '504' || msg.includes('internal error') || msg.includes('backend error');
+  const isNetworkGlitch = msg.includes('timeout') || msg.includes('etimedout') || msg.includes('econnreset') || msg.includes('econnrefused') || msg.includes('socket hang up') || msg.includes('network');
+  return isQuota || isServerError || isNetworkGlitch;
+}
+
+async function readLegacyCursorOrDefault(sheets, spreadsheetId) {
+  try {
+    const cursorResponse = await sheets.spreadsheets.values.get({ spreadsheetId, range: JOB_STATE_LEGACY_CURSOR_RANGE });
+    const value = cursorResponse.data.values && cursorResponse.data.values[0] && cursorResponse.data.values[0][0];
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return { ...createDefaultJobState(), cursor: parsed };
+    }
+  } catch (_) {
+    // Se a leitura do cursor legado também falhar (ex.: range também não existe),
+    // seguimos para o estado padrão. Isso é aceitável aqui porque só chegamos
+    // neste ponto quando já confirmamos que o erro original era de range/aba
+    // inexistente (planilha nova), não um erro transitório mascarado.
+  }
+
+  return createDefaultJobState();
+}
+
+async function readJobState(sheets, spreadsheetId, options = {}) {
+  const maxAttempts = Number(options.maxAttempts || process.env.JOB_STATE_READ_MAX_ATTEMPTS || 4);
+  let attempt = 0;
+
+  while (attempt < maxAttempts) {
+    try {
+      const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: JOB_STATE_RANGE });
+      return parseJobStateRow(response.data.values || []);
+    } catch (error) {
+      // Caso 1: a aba/range realmente não existe (planilha nova) -> estado padrão é correto.
+      if (isRangeNotFoundError(error)) {
+        console.warn('[readJobState] JOB_STATE não existe ainda (planilha nova provavelmente). Retornando estado padrão. ' + describeError(error));
+        return await readLegacyCursorOrDefault(sheets, spreadsheetId);
+      }
+
+      // Caso 2: erro transitório (rate limit, timeout, erro momentâneo da API) -> retry com backoff.
+      if (isTransientError(error)) {
+        attempt += 1;
+        if (attempt < maxAttempts) {
+          const wait = Math.pow(2, attempt) * 1000;
+          console.warn(`[readJobState] Erro transitório ao ler JOB_STATE (tentativa ${attempt}/${maxAttempts}), retry em ${wait}ms: ${describeError(error)}`);
+          await new Promise(resolve => setTimeout(resolve, wait));
+          continue;
+        }
+
+        // Esgotamos as tentativas: propagar o erro em vez de mascarar como generation=0,
+        // que é exatamente o bug que causava o "Job interrompido por uma atualização mais recente".
+        console.error(`[readJobState] Erro transitório persistiu após ${maxAttempts} tentativas. Propagando erro em vez de fingir estado vazio. ${describeError(error)}`);
+        throw error;
+      }
+
+      // Caso 3: erro não classificado. Também não mascaramos como estado padrão,
+      // para não esconder problemas reais (ex.: permissão, spreadsheetId inválido).
+      console.error('[readJobState] Erro não classificado ao ler JOB_STATE. Propagando erro em vez de mascarar como estado vazio. ' + describeError(error));
+      throw error;
+    }
   }
 }
 
@@ -519,6 +584,8 @@ module.exports = {
   toIsoNow,
   parseJobStateRow,
   serializeJobState,
+  isRangeNotFoundError,
+  isTransientError,
   readJobState,
   writeJobState,
   getOwnerId,
