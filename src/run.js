@@ -4,8 +4,6 @@ const { getSheets } = require('./services/sheets');
 const { getGoogleData } = require('./services/googleAds');
 const { getMetaData } = require('./services/meta');
 const { buildRow } = require('./core/calculator');
-const { generateBlocosPorGestor } = require('./core/visualBlocks');
-const { ensureDashboardsForAllGestores } = require('./core/gestorDashboards');
 const { upsertDatabaseRows, clearDatabase } = require('./services/supabase');
 const {
   readJobState,
@@ -65,60 +63,6 @@ async function updateWelcomeStatus(sheets, spreadsheetId, text) {
   } catch (error) {
     console.warn('Falha ao atualizar status da aba de boas-vindas:', error && error.message ? error.message : error);
   }
-}
-
-async function deleteSheetIfExists(sheets, spreadsheetId, title) {
-  const maxAttempts = 4;
-  let attempt = 0;
-  
-  while (attempt < maxAttempts) {
-    try {
-      const meta = await sheets.spreadsheets.get({
-        spreadsheetId,
-        fields: 'sheets(properties(sheetId,title))'
-      });
-
-      const target = (meta.data.sheets || []).find(
-        s => s.properties && s.properties.title === title
-      );
-
-      if (!target || target.properties.sheetId === undefined) {
-        return false;
-      }
-
-      await sheets.spreadsheets.batchUpdate({
-        spreadsheetId,
-        requestBody: {
-          requests: [
-            {
-              deleteSheet: {
-                sheetId: target.properties.sheetId
-              }
-            }
-          ]
-        }
-      });
-
-      return true;
-    } catch (err) {
-      const msg = String(err && (err.message || err.code || err.status) || '').toLowerCase();
-      const isQuota = msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(err && err.status) === '429' || String(err && err.code) === '429';
-      attempt += 1;
-      if (isQuota && attempt < maxAttempts) {
-        const wait = Math.pow(2, attempt) * 1000;
-        console.warn(`[deleteSheetIfExists] Quota 429 recebido, retry em ${wait}ms (tentativa ${attempt}/${maxAttempts})`);
-        await new Promise(resolve => setTimeout(resolve, wait));
-        continue;
-      }
-      throw err;
-    }
-  }
-}
-
-
-function isQuotaExceededError(error) {
-  const msg = String((error && (error.message || error.code || error.status)) || '').toLowerCase();
-  return msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(error && error.status) === '429' || String(error && error.code) === '429';
 }
 
 async function readJobCursor() {
@@ -248,7 +192,6 @@ async function run(options = {}) {
   const processConcurrency = Math.max(1, Number(options.processConcurrency || process.env.PROCESS_CONCURRENCY || 6));
   // reduzir o intervalo padrão para 2000ms para reportar progresso com mais frequência
   const progressUpdateIntervalMs = Math.max(1000, Number(options.progressUpdateIntervalMs || process.env.PROGRESS_UPDATE_INTERVAL_MS || 2000));
-  const skipDashboards = options.skipDashboards === true;
   const ownsJobControl = !options.jobControl;
   let jobControl = options.jobControl || null;
 
@@ -526,43 +469,6 @@ async function run(options = {}) {
 
   if (!options.jobControl) {
     await finishJobState(jobControl, 'idle');
-  }
-
-  try {
-    const removed = await deleteSheetIfExists(sheets, process.env.SPREADSHEET_ID, 'AGG_SUPERVISOR');
-    if (removed) {
-      console.log('AGG_SUPERVISOR removido');
-    }
-  } catch (e) {
-    console.error('Erro ao remover AGG_SUPERVISOR:', e);
-  }
-
-  try {
-    try {
-      await touchJobState(jobControl, { stage: 'supervisor', lastAction: 'pre_generate_supervisor', totalClients: totalClientes });
-    } catch (e) { }
-    await generateBlocosPorGestor(sheets, process.env.SPREADSHEET_ID);
-    console.log('SUPERVISOR atualizado');
-  } catch (e) {
-    console.error('Erro ao gerar SUPERVISOR:', e);
-  }
-
-  if (!skipDashboards) {
-    try {
-      await touchJobState(jobControl, { stage: 'dashboards', lastAction: 'pre_dashboards', totalClients: totalClientes });
-      const dashResult = await ensureDashboardsForAllGestores(sheets, process.env.SPREADSHEET_ID);
-      if (dashResult.ok) {
-        const criadas = dashResult.resultados.filter(r => r.status === 'criada').length;
-        const recriadas = dashResult.resultados.filter(r => r.status === 'recriada').length;
-        console.log(`📊 Dashboards de gestor gerados: ${dashResult.totalGestores} gestor(es), ${criadas} nova(s) e ${recriadas} recriada(s)`);
-      } else {
-        console.warn('Erro ao garantir dashboards de gestor:', dashResult.error);
-      }
-    } catch (e) {
-      console.error('Erro ao assegurar dashboards de gestor:', e);
-    }
-  } else {
-    console.log('Atualização de dashboards adiada para o cron dedicado.');
   }
 
   try {

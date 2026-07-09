@@ -325,6 +325,15 @@ async function runQueuedUpdateJob(options = {}) {
     try {
       await touchJobState(jobControl, { stage: 'supervisor', lastAction: 'pre_supervisor' });
     } catch (e) { }
+    // Limpa abas legadas residuais antes de gerar o SUPERVISOR
+    try {
+      const removed = await deleteSheetIfExists(sheets, spreadsheetId, 'AGG_SUPERVISOR');
+      if (removed) {
+        console.log('AGG_SUPERVISOR removido (limpeza de legado)');
+      }
+    } catch (e) {
+      console.warn('Aviso ao remover AGG_SUPERVISOR:', e && e.message ? e.message : String(e));
+    }
     supervisorResult = await generateBlocosPorGestor(sheets, spreadsheetId);
   }
   try {
@@ -384,6 +393,55 @@ async function runQueuedUpdateJob(options = {}) {
     shouldReenqueue: false,
     dashboardResult
   };
+}
+
+async function deleteSheetIfExists(sheets, spreadsheetId, title) {
+  const maxAttempts = 4;
+  let attempt = 0;
+
+  while (attempt < maxAttempts) {
+    try {
+      const meta = await sheets.spreadsheets.get({
+        spreadsheetId,
+        fields: 'sheets(properties(sheetId,title))'
+      });
+
+      const target = (meta.data.sheets || []).find(
+        s => s.properties && s.properties.title === title
+      );
+
+      if (!target || target.properties.sheetId === undefined) {
+        return false;
+      }
+
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [
+            {
+              deleteSheet: {
+                sheetId: target.properties.sheetId
+              }
+            }
+          ]
+        }
+      });
+
+      return true;
+    } catch (err) {
+      const msg = String((err && (err.message || err.code || err.status)) || '').toLowerCase();
+      const isQuota = msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(err && err.status) === '429' || String(err && err.code) === '429';
+      attempt += 1;
+      if (isQuota && attempt < maxAttempts) {
+        const wait = Math.pow(2, attempt) * 1000;
+        console.warn(`[deleteSheetIfExists] Quota 429 recebido, retry em ${wait}ms (tentativa ${attempt}/${maxAttempts})`);
+        await new Promise(resolve => setTimeout(resolve, wait));
+        continue;
+      }
+      throw err;
+    }
+  }
+  return false;
 }
 
 module.exports = {
