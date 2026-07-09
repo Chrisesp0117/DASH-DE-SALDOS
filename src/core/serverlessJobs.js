@@ -325,6 +325,8 @@ async function runQueuedUpdateJob(options = {}) {
     try {
       await touchJobState(jobControl, { stage: 'supervisor', lastAction: 'pre_supervisor' });
     } catch (e) { }
+    const sheets = await getSheets();
+    const spreadsheetId = process.env.SPREADSHEET_ID;
     // Limpa abas legadas residuais antes de gerar o SUPERVISOR
     try {
       const removed = await deleteSheetIfExists(sheets, spreadsheetId, 'AGG_SUPERVISOR');
