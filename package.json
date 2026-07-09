@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
     "axios": "^1.15.2",
     "dotenv": "^17.4.2",
     "google-ads-api": "^23.0.0",

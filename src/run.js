@@ -5,10 +5,9 @@ const { getGoogleData } = require('./services/googleAds');
 const { getMetaData } = require('./services/meta');
 const { buildRow } = require('./core/calculator');
 const { generateBlocosPorGestor } = require('./core/visualBlocks');
-const { generateSupervisorAgg } = require('./core/aggregator');
 const { ensureDashboardsForAllGestores } = require('./core/gestorDashboards');
+const { upsertDatabaseRows, clearDatabase } = require('./services/supabase');
 const {
-  JOB_STATE_RANGE,
   readJobState,
   writeJobState,
   acquireJobStateLock,
@@ -22,12 +21,7 @@ const {
   DEFAULT_HEARTBEAT_INTERVAL_MS,
   DEFAULT_MAX_MISSED_HEARTBEATS,
   HEARTBEAT_STALE_THRESHOLD_MS
-} = require('./core/jobState');
-
-const DATABASE_HEADERS = [
-  'Data', 'Cliente', 'Plataforma', 'Saldo', 'Gasto Ontem', 'Média Diária', 'Dias restantes',
-  'Gestor', 'Supervisor', 'Status', 'Obs', 'DataISO', 'Identificador'
-];
+} = require('./core/jobStateSupabase');
 
 function isValidGoogleCustomerId(value) {
   return /^\d{10}$/.test(String(value || '').trim());
@@ -121,113 +115,14 @@ async function deleteSheetIfExists(sheets, spreadsheetId, title) {
   }
 }
 
-async function ensureSheetExists(sheets, spreadsheetId, title) {
-  const meta = await sheets.spreadsheets.get({
-    spreadsheetId,
-    fields: 'sheets(properties(sheetId,title))'
-  });
-
-  const existing = (meta.data.sheets || []).find(
-    s => s.properties && s.properties.title === title
-  );
-
-  if (existing && existing.properties && existing.properties.sheetId !== undefined) {
-    return existing.properties.sheetId;
-  }
-
-  const response = await sheets.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: {
-      requests: [
-        {
-          addSheet: {
-            properties: {
-              title
-            }
-          }
-        }
-      ]
-    }
-  });
-
-  const created = response.data.replies && response.data.replies[0] && response.data.replies[0].addSheet;
-  return created && created.properties ? created.properties.sheetId : null;
-}
 
 function isQuotaExceededError(error) {
   const msg = String((error && (error.message || error.code || error.status)) || '').toLowerCase();
   return msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(error && error.status) === '429' || String(error && error.code) === '429';
 }
 
-function isMissingSheetRangeError(error) {
-  const msg = String((error && (error.message || error.code || error.status)) || '').toLowerCase();
-  return msg.includes('unable to parse range') || msg.includes('not found') || msg.includes('bad request');
-}
-
-async function ensureJobStateSheetExists(sheets, spreadsheetId) {
-  try {
-    await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: JOB_STATE_RANGE
-    });
-    return;
-  } catch (error) {
-    if (isQuotaExceededError(error)) {
-      throw error;
-    }
-
-    if (!isMissingSheetRangeError(error)) {
-      return;
-    }
-  }
-
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: {
-      requests: [
-        {
-          addSheet: {
-            properties: {
-              title: 'JOB_STATE'
-            }
-          }
-        }
-      ]
-    }
-  });
-}
-
-async function clearDatabaseTail(sheets, spreadsheetId, totalRows, maxRows = 10000) {
-  const startRow = Math.max(2, Number(totalRows || 0) + 2);
-  if (!Number.isFinite(startRow) || startRow > maxRows) {
-    return;
-  }
-
-  const maxAttempts = 4;
-  let attempt = 0;
-  while (attempt < maxAttempts) {
-    try {
-      return await sheets.spreadsheets.values.clear({
-        spreadsheetId,
-        range: `DATABASE!A${startRow}:M${maxRows}`
-      });
-    } catch (err) {
-      const msg = String(err && (err.message || err.code || err.status) || '').toLowerCase();
-      const isQuota = msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(err && err.status) === '429' || String(err && err.code) === '429';
-      attempt += 1;
-      if (isQuota && attempt < maxAttempts) {
-        const wait = Math.pow(2, attempt) * 1000;
-        console.warn(`[clearDatabaseTail] Quota 429 recebido, retry em ${wait}ms (tentativa ${attempt}/${maxAttempts})`);
-        await new Promise(resolve => setTimeout(resolve, wait));
-        continue;
-      }
-      throw err;
-    }
-  }
-}
-
-async function readJobCursor(sheets, spreadsheetId) {
-  const state = await readJobState(sheets, spreadsheetId);
+async function readJobCursor() {
+  const state = await readJobState();
   // Priorizar progressCursor se o job está em execução
   // progressCursor é atualizado em tempo real durante processamento
   // cursor é apenas atualizado no final de cada lote
@@ -254,118 +149,6 @@ async function readJobCursor(sheets, spreadsheetId) {
   
   console.log('[readJobCursor-result] Retornando ' + cursor + ' (usando cursor)');
   return cursor;
-}
-
-async function applyDatabaseFormatting(sheets, spreadsheetId, totalRows) {
-  const maxAttempts = 4;
-  let attempt = 0;
-  let databaseRowsRes = null;
-  
-  // Retry para leitura de dados
-  while (attempt < maxAttempts) {
-    try {
-      databaseRowsRes = await sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: `DATABASE!A1:M${Math.max(totalRows + 1, 2)}`
-      });
-      break;
-    } catch (err) {
-      const msg = String(err && (err.message || err.code || err.status) || '').toLowerCase();
-      const isQuota = msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(err && err.status) === '429' || String(err && err.code) === '429';
-      attempt += 1;
-      if (isQuota && attempt < maxAttempts) {
-        const wait = Math.pow(2, attempt) * 1000;
-        console.warn(`[applyDatabaseFormatting-read] Quota 429 recebido, retry em ${wait}ms (tentativa ${attempt}/${maxAttempts})`);
-        await new Promise(resolve => setTimeout(resolve, wait));
-        continue;
-      }
-      throw err;
-    }
-  }
-
-  const databaseRows = databaseRowsRes.data.values || [];
-
-  const meta = await sheets.spreadsheets.get({
-    spreadsheetId,
-    fields: 'sheets(properties(sheetId,title))'
-  });
-
-  const databaseSheet = (meta.data.sheets || []).find(
-    s => s.properties && s.properties.title === 'DATABASE'
-  );
-
-  if (!databaseSheet || databaseSheet.properties.sheetId === undefined) {
-    return;
-  }
-
-  const formatRequests = [];
-
-  for (let i = 1; i < databaseRows.length; i++) {
-    const statusValue = databaseRows[i] && databaseRows[i][9];
-    const isError = String(statusValue).toLowerCase() === 'erro';
-    formatRequests.push({
-      repeatCell: {
-        range: {
-          sheetId: databaseSheet.properties.sheetId,
-          startRowIndex: i,
-          endRowIndex: i + 1,
-          startColumnIndex: 9,
-          endColumnIndex: 10
-        },
-        cell: {
-          userEnteredFormat: {
-            backgroundColor: isError
-              ? { red: 0.85, green: 0.2, blue: 0.2 }
-              : { red: 0.75, green: 0.9, blue: 0.75 },
-            textFormat: {
-              bold: true,
-              foregroundColor: isError
-                ? { red: 1, green: 1, blue: 1 }
-                : { red: 0, green: 0.35, blue: 0 }
-            }
-          }
-        },
-        fields: 'userEnteredFormat(backgroundColor,textFormat.foregroundColor,textFormat.bold)'
-      }
-    });
-  }
-
-  for (let col = 0; col < DATABASE_HEADERS.length; col++) {
-    formatRequests.push({
-      autoResizeDimensions: {
-        dimensions: {
-          sheetId: databaseSheet.properties.sheetId,
-          dimension: 'COLUMNS',
-          startIndex: col,
-          endIndex: col + 1
-        }
-      }
-    });
-  }
-
-  if (formatRequests.length) {
-    const maxAttempts = 4;
-    let attempt = 0;
-    while (attempt < maxAttempts) {
-      try {
-        return await sheets.spreadsheets.batchUpdate({
-          spreadsheetId,
-          requestBody: { requests: formatRequests }
-        });
-      } catch (err) {
-        const msg = String(err && (err.message || err.code || err.status) || '').toLowerCase();
-        const isQuota = msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(err && err.status) === '429' || String(err && err.code) === '429';
-        attempt += 1;
-        if (isQuota && attempt < maxAttempts) {
-          const wait = Math.pow(2, attempt) * 1000;
-          console.warn(`[applyDatabaseFormatting] Quota 429 recebido, retry em ${wait}ms (tentativa ${attempt}/${maxAttempts})`);
-          await new Promise(resolve => setTimeout(resolve, wait));
-          continue;
-        }
-        throw err;
-      }
-    }
-  }
 }
 
 async function processClienteRow(row, indices) {
@@ -465,21 +248,18 @@ async function run(options = {}) {
   const processConcurrency = Math.max(1, Number(options.processConcurrency || process.env.PROCESS_CONCURRENCY || 6));
   // reduzir o intervalo padrão para 2000ms para reportar progresso com mais frequência
   const progressUpdateIntervalMs = Math.max(1000, Number(options.progressUpdateIntervalMs || process.env.PROGRESS_UPDATE_INTERVAL_MS || 2000));
-  const includeSupervisorAgg = options.includeSupervisorAgg !== false;
   const skipDashboards = options.skipDashboards === true;
   const ownsJobControl = !options.jobControl;
   let jobControl = options.jobControl || null;
 
   const sheets = await getSheets();
 
-  await ensureJobStateSheetExists(sheets, process.env.SPREADSHEET_ID);
-
   if (!jobControl) {
-    jobControl = await acquireJobStateLock(sheets, process.env.SPREADSHEET_ID, {
+    jobControl = await acquireJobStateLock({
       leaseMs: Number(process.env.JOB_LEASE_MS || 10 * 60 * 1000)
     });
   } else {
-    const active = await assertJobStateActive(sheets, process.env.SPREADSHEET_ID, jobControl);
+    const active = await assertJobStateActive(jobControl);
     if (!active.active) {
       const err = new Error('Job interrompido por uma atualização mais recente.');
       err.code = 'JOB_INTERRUPTED';
@@ -490,34 +270,6 @@ async function run(options = {}) {
   // helper: sleep
   function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
-  // helper: batch update values with retry/backoff on 429
-  async function batchUpdateValues(sheets, spreadsheetId, data) {
-    const maxAttempts = 4;
-    let attempt = 0;
-    while (attempt < maxAttempts) {
-      try {
-        return await sheets.spreadsheets.values.batchUpdate({
-          spreadsheetId,
-          requestBody: {
-            valueInputOption: 'RAW',
-            data
-          }
-        });
-      } catch (err) {
-        const msg = String(err && (err.message || err.code || err.status) || '').toLowerCase();
-        const isQuota = msg.includes('quota exceeded') || msg.includes('resource_exhausted') || String(err && err.status) === '429' || String(err && err.code) === '429';
-        attempt += 1;
-        if (isQuota && attempt < maxAttempts) {
-          const wait = Math.pow(2, attempt) * 1000;
-          console.warn(`Quota 429 recebido, retry em ${wait}ms (tentativa ${attempt}/${maxAttempts})`);
-          await sleep(wait);
-          continue;
-        }
-        throw err;
-      }
-    }
   }
 
   const clientesRes = await sheets.spreadsheets.values.get({
@@ -563,7 +315,7 @@ async function run(options = {}) {
   const totalClientes = clientes.length;
   console.log('[run-init] clientes.length=' + totalClientes);
 
-  let cursor = Number.isFinite(Number(options.cursor)) ? Math.max(0, Number(options.cursor)) : await readJobCursor(sheets, process.env.SPREADSHEET_ID);
+  let cursor = Number.isFinite(Number(options.cursor)) ? Math.max(0, Number(options.cursor)) : await readJobCursor();
   console.log('[run-cursor] cursor após readJobCursor=' + cursor);
   // Permite cursor === totalClientes para retomar jobs em que a fase DATABASE
   // já terminou e faltam apenas etapas finais (supervisor/dashboards).
@@ -584,7 +336,7 @@ async function run(options = {}) {
       lastAction: 'set_total_clients'
     };
     console.log('[run-save-total] Salvando totalClients=' + totalClientes + ' na aquisição do lock. initialState=' + JSON.stringify(initialState));
-    await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, initialState);
+    await touchJobState(jobControl, initialState);
   } catch (e) {
     console.warn('[run] Erro ao definir totalClients:', e && e.message);
   }
@@ -594,17 +346,18 @@ async function run(options = {}) {
   console.log(`[batch] cursor=${cursor}, batchSize=${batchSize}, batchClientes.length=${batchClientes.length}, totalClientes=${totalClientes}`);
 
   if (cursor === 0) {
-    await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
+    await touchJobState(jobControl, {
       totalClients: totalClientes,
       stage: 'database',
       lastAction: 'start_database'
     });
-    await batchUpdateValues(sheets, process.env.SPREADSHEET_ID, [
-      {
-        range: 'DATABASE!A1',
-        values: [DATABASE_HEADERS]
-      }
-    ]);
+    // Limpa a DATABASE do Supabase no início de um ciclo completo
+    try {
+      await clearDatabase();
+      console.log('[run] DATABASE (Supabase) limpa para início de ciclo');
+    } catch (e) {
+      console.warn('[run] Falha ao limpar DATABASE (Supabase):', e && e.message);
+    }
   }
 
   if (!batchClientes.length) {
@@ -612,15 +365,15 @@ async function run(options = {}) {
     if (cursor < totalClientes) {
       // Ainda há clientes! Não marca como finished.
       console.log('Lote vazio em cursor=' + cursor + ' mas totalClientes=' + totalClientes + '; continuar processando');
-      await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { cursor, totalClients: totalClientes });
+      await touchJobState(jobControl, { cursor, totalClients: totalClientes });
       if (ownsJobControl) {
-        await releaseJobState(sheets, process.env.SPREADSHEET_ID, jobControl, 'idle');
+        await releaseJobState(jobControl, 'idle');
       }
       return { ok: true, processed: 0, total: totalClientes, cursor, nextCursor: cursor, finished: false };
     }
     
     // Todos foram processados
-    await finishJobState(sheets, process.env.SPREADSHEET_ID, jobControl, 'idle');
+    await finishJobState(jobControl, 'idle');
     console.log('Nenhum cliente pendente; todos foram processados.');
     return { ok: true, processed: 0, total: totalClientes, cursor, nextCursor: cursor, finished: true };
   }
@@ -630,7 +383,7 @@ async function run(options = {}) {
   let lastProgressTouchAt = 0;
 
   for (let start = 0; start < batchClientes.length; start += processConcurrency) {
-    const active = await assertJobStateActive(sheets, process.env.SPREADSHEET_ID, jobControl);
+    const active = await assertJobStateActive(jobControl);
     if (!active.active) {
       console.error('[run-loop-interrupted] Job foi interrompido! start=' + start + ', jobControl.generation=' + jobControl.generation + ', current.generation=' + active.state.generation);
       const err = new Error('Job interrompido por uma atualização mais recente.');
@@ -702,7 +455,7 @@ async function run(options = {}) {
       if (shouldTouchProgress) {
         try {
           console.log('[progress-touch] Tentando atualizar progressCursor para ' + (item.index + 1) + ', totalClientes=' + totalClientes);
-          await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
+          await touchJobState(jobControl, {
             stage: 'database',
             progressCursor: item.index + 1,
             totalClients: totalClientes,
@@ -719,17 +472,17 @@ async function run(options = {}) {
     }
   }
 
-  const firstRowIndex = cursor + 2;
   // Filtrar undefined e pegar apenas as linhas que foram realmente processadas
   const validBatchRows = batchRows.filter(item => item !== undefined);
   const valuesToWrite = validBatchRows.map(item => item.values);
 
-  await batchUpdateValues(sheets, process.env.SPREADSHEET_ID, [
-    {
-      range: `DATABASE!A${firstRowIndex}`,
-      values: valuesToWrite
-    }
-  ]);
+  try {
+    await upsertDatabaseRows(valuesToWrite);
+    console.log('[run] ' + valuesToWrite.length + ' linha(s) upsertada(s) na DATABASE (Supabase)');
+  } catch (e) {
+    console.error('[run] Erro ao upsertar DATABASE no Supabase:', e && e.message);
+    throw e;
+  }
 
   // O número de clientes processados é sempre o número de itens no batchRows
   // (não o número de itens válidos, porque cada cliente produz uma linha, seja sucesso ou erro)
@@ -751,7 +504,7 @@ async function run(options = {}) {
   console.log(`[batch-end] cursor=${cursor}, batchClientes.length=${batchClientes.length}, validBatchRows.length=${validBatchRows.length}, nextCursor=${nextCursor}, totalClientes=${finalTotalClientes}, finished=${finished}, percent=${percentComplete}%`);
 
   try {
-    await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, {
+    await touchJobState(jobControl, {
       stage: finished ? 'database_complete' : 'database',
       cursor: nextCursor,
       totalClients: finalTotalClientes,
@@ -767,24 +520,12 @@ async function run(options = {}) {
     const batchTime = new Date().toISOString();
     console.log(`Lote concluído | processed=${actualProcessed} | nextCursor=${nextCursor}/${totalClientes} | time=${batchTime}`);
     // NÃO liberar o lock aqui - apenas quem o adquiriu deve liberá-lo
-    // O jobControl foi passado por runFullUpdateJob que cuidará da liberação
+    // O jobControl foi passado pelo runner (runQueuedUpdateJob) que cuidará da liberação
     return { ok: true, processed: actualProcessed, total: totalClientes, cursor, nextCursor, finished: false };
   }
 
   if (!options.jobControl) {
-    await finishJobState(sheets, process.env.SPREADSHEET_ID, jobControl, 'idle');
-  }
-
-  try {
-    await clearDatabaseTail(sheets, process.env.SPREADSHEET_ID, totalClientes);
-  } catch (e) {
-    console.error('Erro ao limpar cauda da DATABASE:', e);
-  }
-
-  try {
-    await applyDatabaseFormatting(sheets, process.env.SPREADSHEET_ID, totalClientes);
-  } catch (e) {
-    console.error('Erro ao formatar DATABASE:', e);
+    await finishJobState(jobControl, 'idle');
   }
 
   try {
@@ -796,31 +537,19 @@ async function run(options = {}) {
     console.error('Erro ao remover AGG_SUPERVISOR:', e);
   }
 
-  if (includeSupervisorAgg) {
+  try {
     try {
-      try {
-        await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { stage: 'supervisor', lastAction: 'pre_generate_supervisor', totalClients: totalClientes });
-      } catch (e) { }
-      await generateBlocosPorGestor(sheets, process.env.SPREADSHEET_ID);
-      console.log('SUPERVISOR atualizado');
-    } catch (e) {
-      console.error('Erro ao gerar SUPERVISOR:', e);
-    }
-
-    try {
-      try {
-        await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { stage: 'aggregating', lastAction: 'pre_generate_agg', totalClients: totalClientes });
-      } catch (e) { }
-      await generateSupervisorAgg(sheets, process.env.SPREADSHEET_ID);
-      console.log('AGG_SUPERVISOR atualizado');
-    } catch (e) {
-      console.error('Erro ao gerar AGG_SUPERVISOR:', e);
-    }
+      await touchJobState(jobControl, { stage: 'supervisor', lastAction: 'pre_generate_supervisor', totalClients: totalClientes });
+    } catch (e) { }
+    await generateBlocosPorGestor(sheets, process.env.SPREADSHEET_ID);
+    console.log('SUPERVISOR atualizado');
+  } catch (e) {
+    console.error('Erro ao gerar SUPERVISOR:', e);
   }
 
   if (!skipDashboards) {
     try {
-      await touchJobState(sheets, process.env.SPREADSHEET_ID, jobControl, { stage: 'dashboards', lastAction: 'pre_dashboards', totalClients: totalClientes });
+      await touchJobState(jobControl, { stage: 'dashboards', lastAction: 'pre_dashboards', totalClients: totalClientes });
       const dashResult = await ensureDashboardsForAllGestores(sheets, process.env.SPREADSHEET_ID);
       if (dashResult.ok) {
         const criadas = dashResult.resultados.filter(r => r.status === 'criada').length;

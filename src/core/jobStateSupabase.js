@@ -120,7 +120,7 @@ async function writeJobState(state) {
 }
 
 // ==================== TOUCH (UPDATE CAMPOS) ====================
-async function touchJobState(state, updates) {
+async function touchJobState(state, updates = {}) {
   try {
     const current = await readJobState();
     
@@ -130,8 +130,8 @@ async function touchJobState(state, updates) {
       throw new Error('JOB_INTERRUPTED');
     }
 
-    const nextCursor = Number.isFinite(Number(updates.cursor)) ? Number(updates.cursor) : current.cursor;
-    
+    const nextCursor = updates.cursor !== undefined && Number.isFinite(Number(updates.cursor)) ? Number(updates.cursor) : current.cursor;
+
     let nextProgressCursor;
     if (updates.hasOwnProperty('progressCursor') && Number.isFinite(Number(updates.progressCursor))) {
       nextProgressCursor = Number(updates.progressCursor);
@@ -141,7 +141,7 @@ async function touchJobState(state, updates) {
       nextProgressCursor = nextCursor;
     }
 
-    const nextTotalClients = Number.isFinite(Number(updates.totalClients))
+    const nextTotalClients = updates.totalClients !== undefined && Number.isFinite(Number(updates.totalClients))
       ? Number(updates.totalClients)
       : (Number.isFinite(Number(current.totalClients)) ? Number(current.totalClients) : 0);
 
@@ -198,7 +198,7 @@ async function acquireJobStateLock(options = {}) {
     const nextGeneration = (current.generation || 0) + 1;
     const now = Date.now();
     const leaseMs = Math.max(60000, Number(options.leaseMs || process.env.JOB_LEASE_MS || 60 * 1000));
-    const jobId = randomUUID();
+    const jobId = String(options.jobId || randomUUID());
 
     const state = {
       id: 1,
@@ -257,6 +257,11 @@ async function releaseJobState(state, nextStatus = 'idle') {
       console.warn('[releaseJobState] Generation mismatch, mas continua');
     }
 
+    const pausedCursor = Number.isFinite(Number(current.cursor)) ? Number(current.cursor) : 0;
+    const pausedProgress = Number.isFinite(Number(current.progressCursor)) ? Number(current.progressCursor) : 0;
+    const maxProgress = Math.max(pausedCursor, pausedProgress);
+    const pausedTotal = Number.isFinite(Number(current.totalClients)) ? Number(current.totalClients) : 0;
+
     const { data, error } = await supabase
       .from(JOB_STATE_TABLE)
       .upsert([{
@@ -264,9 +269,9 @@ async function releaseJobState(state, nextStatus = 'idle') {
         status: nextStatus,
         jobId: state.jobId,
         generation: current.generation,
-        cursor: current.cursor,
-        progressCursor: current.progressCursor,
-        totalClients: current.totalClients,
+        cursor: maxProgress,
+        progressCursor: maxProgress,
+        totalClients: pausedTotal,
         leaseUntil: 0,
         updatedAt: toIsoNow(),
         owner: current.owner,
@@ -276,12 +281,23 @@ async function releaseJobState(state, nextStatus = 'idle') {
         lastAction: 'release',
         takeoverBy: '',
         auditPointer: current.auditPointer,
-        stage: nextStatus === 'done' ? 'done' : current.stage
+        stage: nextStatus === 'done' ? 'done' : (String(current.stage || 'paused').trim() || 'paused')
       }], { onConflict: 'id' })
       .select()
       .single();
 
     if (error) throw error;
+
+    await appendJobHistory({
+      timestamp: toIsoNow(),
+      jobId: state.jobId,
+      generation: current.generation,
+      action: 'release',
+      owner: current.owner,
+      cursor: maxProgress,
+      leaseUntil: 0,
+      reason: nextStatus
+    });
 
     console.log('[releaseJobState-supabase] Lock liberado. status=' + nextStatus);
     return data;
@@ -289,6 +305,89 @@ async function releaseJobState(state, nextStatus = 'idle') {
     console.error('[releaseJobState-error]', err.message);
     throw err;
   }
+}
+
+async function assertJobStateActive(control) {
+  if (!control) return { active: true, state: createDefaultJobState() };
+  const current = await readJobState();
+  const isSame = isSameJobState(current, control);
+  if (!isSame) {
+    console.error('[assertJobStateActive-supabase] Mismatch! control.generation=' + control.generation + ', current.generation=' + current.generation);
+  }
+  return { active: isSame, state: current };
+}
+
+async function finishJobState(state, status = 'idle') {
+  try {
+    const current = await readJobState();
+    if (!isSameJobState(current, state)) return current;
+
+    const finalProgress = Number.isFinite(Number(current.progressCursor)) ? Number(current.progressCursor) : 0;
+    const finalCursor = Number.isFinite(Number(current.cursor)) ? Number(current.cursor) : 0;
+    const finalTotal = Number.isFinite(Number(current.totalClients)) ? Number(current.totalClients) : 0;
+    const finalCursorMax = Math.max(finalCursor, finalProgress);
+
+    const { data, error } = await supabase
+      .from(JOB_STATE_TABLE)
+      .upsert([{
+        id: 1,
+        status,
+        jobId: state.jobId,
+        generation: state.generation,
+        cursor: finalCursorMax,
+        progressCursor: finalCursorMax,
+        totalClients: finalTotal,
+        leaseUntil: 0,
+        updatedAt: toIsoNow(),
+        owner: current.owner || '',
+        heartbeatAt: null,
+        attempts: current.attempts || 0,
+        lastError: '',
+        lastAction: 'finish',
+        takeoverBy: current.takeoverBy || '',
+        auditPointer: current.auditPointer || 'JOB_HISTORY',
+        stage: 'done'
+      }], { onConflict: 'id' })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    await appendJobHistory({
+      timestamp: toIsoNow(),
+      jobId: state.jobId,
+      generation: state.generation,
+      action: 'finish',
+      owner: current.owner || '',
+      cursor: finalCursorMax,
+      leaseUntil: 0,
+      reason: ''
+    });
+
+    console.log('[finishJobState-supabase] Job finalizado. stage=done');
+    return data;
+  } catch (err) {
+    console.error('[finishJobState-error]', err.message);
+    throw err;
+  }
+}
+
+async function startHeartbeatTimer(jobControl, intervalMs = DEFAULT_HEARTBEAT_INTERVAL_MS) {
+  if (!jobControl) return null;
+  const interval = Math.max(5000, Number(intervalMs));
+  const heartbeatTimer = setInterval(async () => {
+    try {
+      const still = await heartbeatJobState(jobControl, 60000);
+      if (still === false) {
+        clearInterval(heartbeatTimer);
+        return;
+      }
+      console.log('[heartbeat-supabase] lease refreshed for jobId=' + jobControl.jobId);
+    } catch (e) {
+      console.warn('[heartbeat-supabase] error: ' + (e && e.message ? e.message : e));
+    }
+  }, interval);
+  return heartbeatTimer;
 }
 
 // ==================== HEARTBEAT ====================
@@ -395,12 +494,17 @@ async function getOwnerId() {
 
 // ==================== EXPORTS ====================
 module.exports = {
+  JOB_STATE_TABLE,
+  JOB_HISTORY_TABLE,
   readJobState,
   writeJobState,
   touchJobState,
   acquireJobStateLock,
   releaseJobState,
+  assertJobStateActive,
+  finishJobState,
   heartbeatJobState,
+  startHeartbeatTimer,
   appendJobHistory,
   getJobLockMeta,
   isSameJobState,

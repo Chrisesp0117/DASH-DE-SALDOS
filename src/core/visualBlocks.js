@@ -1,10 +1,4 @@
-function formatCurrencyBRL(value) {
-  const n = Number(value || 0);
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL'
-  }).format(n);
-}
+const { readDatabaseRows } = require('../services/supabase');
 
 function parseLocaleNumber(value) {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -40,131 +34,9 @@ function parseDias(value) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
-function formatDiasHoras(diasValue) {
-  const totalDias = Math.max(0, Number(diasValue || 0));
-  const diasInteiros = Math.floor(totalDias);
-  const horas = Math.floor((totalDias - diasInteiros) * 24);
-  const dd = String(diasInteiros).padStart(2, '0');
-  const hh = String(horas).padStart(2, '0');
-  return `${dd} dias e ${hh} horas`;
-}
-
-async function generateTop10MenorSaldo(sheets, spreadsheetId) {
-    // Descobrir sheetId para autoajuste
-    const metaTop10Only = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets(properties(sheetId,title))' });
-    const sheetTop10Only = (metaTop10Only.data.sheets || []).find(s => s.properties && s.properties.title === 'TOP10_MENOR_SALDO');
-    const sheetIdTop10 = sheetTop10Only && sheetTop10Only.properties && sheetTop10Only.properties.sheetId;
-  // Read DATABASE rows
-  const range = 'DATABASE!A2:M';
-  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range });
-  const rows = res.data.values || [];
-  
-  // SAFETY CHECK: If DATABASE is empty, don't overwrite TOP10 with empty data
-  if (!rows || rows.length === 0) {
-    console.warn('⚠️ DATABASE está vazia - pulando geração de TOP10_MENOR_SALDO');
-    return { ok: true, skipped: true, reason: 'database_empty' };
-  }
-  
-  // saldo está na coluna K (índice 10)
-  const sorted = rows
-    .map(r => ({
-      cliente: r[1] || '',
-      gestor: r[7] || '',
-      supervisor: r[8] || '',
-      saldo: parseLocaleNumber(r[3]),
-      saldoFmt: formatCurrencyBRL(parseLocaleNumber(r[3])),
-      gastoOntem: parseLocaleNumber(r[4]),
-      gastoOntemFmt: formatCurrencyBRL(parseLocaleNumber(r[4])),
-      dias: parseDias(r[6]),
-      diasFmt: parseDias(r[6]) === null ? '-' : formatDiasHoras(parseDias(r[6]))
-    }))
-    .sort((a, b) => a.saldo - b.saldo)
-    .slice(0, 10);
-
-  const HEADERS = ['Cliente', 'Gestor', 'Supervisor', 'Saldo', 'Gasto Ontem', 'Duração Estimada'];
-  const values = sorted.map(r => [r.cliente, r.gestor, r.supervisor, r.saldoFmt, r.gastoOntemFmt, r.diasFmt]);
-
-  // Cria/atualiza aba TOP10_MENOR_SALDO
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: {
-      requests: [{
-        addSheet: { properties: { title: 'TOP10_MENOR_SALDO' } }
-      }]
-    }
-  }).catch(() => {}); // ignora erro se já existe
-
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: 'TOP10_MENOR_SALDO!A1',
-    valueInputOption: 'RAW',
-    requestBody: { values: [HEADERS] }
-  });
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: 'TOP10_MENOR_SALDO!A2',
-    valueInputOption: 'RAW',
-    requestBody: { values }
-  });
-
-  // Formatação visual: bordas e cores alternadas em vermelho
-  const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets(properties(sheetId,title))' });
-  const sheet = (meta.data.sheets || []).find(s => s.properties && s.properties.title === 'TOP10_MENOR_SALDO');
-  const sheetId = sheet && sheet.properties && sheet.properties.sheetId;
-  if (sheetId !== undefined) {
-    let formatRequests = [];
-    // Cabeçalho
-    formatRequests.push({
-      repeatCell: {
-        range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: HEADERS.length },
-        cell: { userEnteredFormat: { backgroundColor: { red: 1, green: 0.8, blue: 0.8 }, textFormat: { bold: true } } },
-        fields: 'userEnteredFormat(backgroundColor,textFormat.bold)'
-      }
-    });
-    // Linhas de dados
-    for (let i = 0; i < values.length; i++) {
-      const baseColor = (i % 2 === 0)
-        ? { red: 1, green: 0.95, blue: 0.95 }
-        : { red: 1, green: 1, blue: 1 };
-      const borders = {
-        top: { style: 'SOLID', color: { red: 0.7, green: 0.7, blue: 0.7 } },
-        bottom: { style: 'SOLID', color: { red: 0.7, green: 0.7, blue: 0.7 } },
-        left: { style: 'SOLID', color: { red: 0.7, green: 0.7, blue: 0.7 } },
-        right: { style: 'SOLID', color: { red: 0.7, green: 0.7, blue: 0.7 } }
-      };
-      formatRequests.push({
-        repeatCell: {
-          range: { sheetId, startRowIndex: i + 1, endRowIndex: i + 2, startColumnIndex: 0, endColumnIndex: HEADERS.length },
-          cell: { userEnteredFormat: { backgroundColor: baseColor, borders } },
-          fields: 'userEnteredFormat(backgroundColor,borders)'
-        }
-      });
-    }
-    // Autoajuste de colunas
-    for (let col = 0; col < HEADERS.length; col++) {
-      formatRequests.push({
-        autoResizeDimensions: {
-          dimensions: {
-            sheetId,
-            dimension: 'COLUMNS',
-            startIndex: col,
-            endIndex: col + 1
-          }
-        }
-      });
-    }
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId,
-      requestBody: { requests: formatRequests }
-    });
-  }
-}
-
 async function generateBlocosPorGestor(sheets, spreadsheetId) {
-  // Read DATABASE rows
-  const range = 'DATABASE!A2:M';
-  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range });
-  const rows = res.data.values || [];
+  // Read DATABASE rows from Supabase
+  const rows = await readDatabaseRows();
   
   // SAFETY CHECK: If DATABASE is empty, don't overwrite SUPERVISOR/DASH with empty data
   if (!rows || rows.length === 0) {
@@ -394,4 +266,4 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
   };
 }
 
-module.exports = { generateTop10MenorSaldo, generateBlocosPorGestor };
+module.exports = { generateBlocosPorGestor };

@@ -6,6 +6,7 @@
  */
 
 const { generateBlocosPorGestor } = require('./visualBlocks');
+const { readDatabaseRows } = require('../services/supabase');
 
 const DASH_PREFIX = 'DASH-';
 const DASH_LAST_UPDATE_LABEL_CELL = 'D1';
@@ -385,12 +386,8 @@ async function atomicRefreshAllDashboards(sheets, spreadsheetId, options = {}) {
     // Step 3: Clear all dashboards at once
     await clearAllDashboardData(sheets, spreadsheetId, gestores);
 
-    // Step 4: Read DATABASE rows to build DASH sheets with both Meta and Google
-    const dbRes = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: 'DATABASE!A2:M'
-    });
-    const databaseRows = dbRes.data.values || [];
+    // Step 4: Read DATABASE rows from Supabase to build DASH sheets with both Meta and Google
+    const databaseRows = await readDatabaseRows();
 
     // Step 5: Rebuild each DASH sheet from DATABASE rows (vertical Meta+Google layout)
     const sheetMeta = await getSheetMeta(sheets, spreadsheetId);
@@ -730,11 +727,7 @@ async function ensureDashboardsForAllGestores(sheets, spreadsheetId, options = {
     // Clear all dashboards BEFORE rewriting to avoid stale duplicated blocks
     await clearAllDashboardData(sheets, spreadsheetId, gestores);
 
-    const dbRes = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: 'DATABASE!A2:M'
-    });
-    const databaseRows = dbRes.data.values || [];
+    const databaseRows = await readDatabaseRows();
 
     const resultados = [];
 

@@ -17,11 +17,11 @@ function separator() {
   return '────────────────────';
 }
 
+const { readDatabaseRows } = require('../services/supabase');
+
 async function generateReport(sheets, spreadsheetId) {
   try {
-    const range = 'DATABASE!A2:M';
-    const res = await sheets.spreadsheets.values.get({ spreadsheetId, range });
-    const rows = res.data.values || [];
+    const rows = await readDatabaseRows();
 
     if (rows.length === 0) {
       return '📊 Nenhum dado para exibir.';

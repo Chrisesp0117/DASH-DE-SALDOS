@@ -1,8 +1,7 @@
 require('dotenv').config({ path: '.env' });
 
 const { assertCronAuth, sendJson } = require('../src/core/serverlessJobs');
-const { getSheets } = require('../src/services/sheets');
-const { readJobState, getJobLockMeta } = require('../src/core/jobState');
+const { readJobState, getJobLockMeta } = require('../src/core/jobStateSupabase');
 
 module.exports = async (req, res) => {
   const authResponse = assertCronAuth(req, res);
@@ -11,9 +10,7 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const sheets = await getSheets();
-    const spreadsheetId = process.env.SPREADSHEET_ID;
-    const state = await readJobState(sheets, spreadsheetId);
+    const state = await readJobState();
     const lockMeta = getJobLockMeta(state);
 
     const totalClients = Number.isFinite(Number(state.totalClients))

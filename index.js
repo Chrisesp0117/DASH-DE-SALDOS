@@ -35,10 +35,6 @@ module.exports = async (req, res) => {
     return require('./api/index')(req, res);
   }
 
-  if (path === '/api/update') {
-    return require('./api/update')(req, res);
-  }
-
   if (path === '/api/update-now') {
     return require('./api/update-now')(req, res);
   }
@@ -51,16 +47,16 @@ module.exports = async (req, res) => {
     return require('./api/report')(req, res);
   }
 
-  if (path === '/api/cron/update') {
-    return require('./api/cron/update')(req, res);
-  }
-
-  if (path === '/api/cron/update-full') {
-    return require('./api/cron/update-full')(req, res);
-  }
-
   if (path === '/api/cron/dashboards') {
     return require('./api/cron/dashboards')(req, res);
+  }
+
+  if (path === '/api/cron/enqueue') {
+    return require('./api/cron/enqueue')(req, res);
+  }
+
+  if (path === '/api/cron/advance-queue') {
+    return require('./api/cron/advance-queue')(req, res);
   }
 
   if (path === '/api/cron/report-8h') {
