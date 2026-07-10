@@ -38,7 +38,8 @@ function createDefaultJobState() {
     lastAction: '',
     takeoverBy: '',
     auditPointer: 'JOB_HISTORY',
-    stage: 'idle'
+    stage: 'idle',
+    cliente_atual: ''
   };
 }
 
@@ -100,7 +101,8 @@ async function writeJobState(state) {
       lastAction: state.lastAction || '',
       takeoverBy: state.takeoverBy || '',
       auditPointer: state.auditPointer || 'JOB_HISTORY',
-      stage: state.stage || 'idle'
+      stage: state.stage || 'idle',
+      cliente_atual: state.cliente_atual || ''
     };
 
     const { data, error } = await supabase
@@ -162,7 +164,8 @@ async function touchJobState(state, updates = {}) {
       lastAction: updates.lastAction || current.lastAction || '',
       takeoverBy: current.takeoverBy || '',
       auditPointer: current.auditPointer || 'JOB_HISTORY',
-      stage: updates.stage || current.stage || 'idle'
+      stage: updates.stage || current.stage || 'idle',
+      cliente_atual: updates.cliente_atual !== undefined ? updates.cliente_atual : (current.cliente_atual || '')
     };
 
     const { data, error } = await supabase
@@ -217,7 +220,8 @@ async function acquireJobStateLock(options = {}) {
       lastAction: 'acquire',
       takeoverBy: '',
       auditPointer: 'JOB_HISTORY',
-      stage: 'database'
+      stage: 'database',
+      cliente_atual: shouldResetCursor ? '' : (current.cliente_atual || '')
     };
 
     const { data, error } = await supabase
@@ -281,7 +285,8 @@ async function releaseJobState(state, nextStatus = 'idle') {
         lastAction: 'release',
         takeoverBy: '',
         auditPointer: current.auditPointer,
-        stage: nextStatus === 'done' ? 'done' : (String(current.stage || 'paused').trim() || 'paused')
+        stage: nextStatus === 'done' ? 'done' : (String(current.stage || 'paused').trim() || 'paused'),
+        cliente_atual: ''
       }], { onConflict: 'id' })
       .select()
       .single();
@@ -346,7 +351,8 @@ async function finishJobState(state, status = 'idle') {
         lastAction: 'finish',
         takeoverBy: current.takeoverBy || '',
         auditPointer: current.auditPointer || 'JOB_HISTORY',
-        stage: 'done'
+        stage: 'done',
+        cliente_atual: ''
       }], { onConflict: 'id' })
       .select()
       .single();
@@ -419,7 +425,8 @@ async function heartbeatJobState(jobControl, leaseMs = 60000) {
         lastAction: 'heartbeat',
         takeoverBy: current.takeoverBy,
         auditPointer: current.auditPointer,
-        stage: current.stage
+        stage: current.stage,
+        cliente_atual: current.cliente_atual || ''
       }], { onConflict: 'id' })
       .select()
       .single();

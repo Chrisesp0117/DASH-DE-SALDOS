@@ -69,6 +69,7 @@ module.exports = async (req, res) => {
       includeSupervisor: jobOptions.includeSupervisor !== false,
       includeDashboards: jobOptions.includeDashboards !== false,
       resetCursor: jobOptions.resetCursor === true,
+      triggeredBy: claimed.triggered_by || 'cron',
       force: claimed.attempts > 1 ? true : false  // em retries, força o lock (já sabemos que o worker anterior morreu)
     });
 

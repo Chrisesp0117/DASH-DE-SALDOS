@@ -185,11 +185,21 @@ function renderHtmlPage(params) {
       font-size: 12px; color: var(--muted);
       margin-top: 6px; letter-spacing: 0.01em;
     }
+    .meta-client {
+      font-size: 11px; color: var(--ink); margin-top: 4px;
+      min-height: 14px; max-width: 280px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      letter-spacing: 0.01em; font-weight: 500;
+    }
+    .meta-client:empty { display: none; }
+    .meta-client::before {
+      content: '👉 '; color: var(--primary); font-weight: 700;
+    }
 
     /* BAR */
     .bar {
       height: 3px; background: var(--line); border-radius: 2px;
-      overflow: hidden; margin-bottom: 16px;
+      overflow: hidden; margin-bottom: 6px;
     }
     .bar-fill {
       height: 100%; width: 0%;
@@ -200,6 +210,11 @@ function renderHtmlPage(params) {
       content: ''; position: absolute; inset: 0;
       background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.25), transparent);
       animation: shimmer 2.4s linear infinite;
+    }
+    .bar-label {
+      font-size: 9px; color: var(--muted); display: flex;
+      justify-content: space-between; margin-bottom: 14px;
+      letter-spacing: 0.02em; text-transform: uppercase;
     }
     @keyframes shimmer {
       0% { transform: translateX(-100%); }
@@ -381,11 +396,13 @@ function renderHtmlPage(params) {
         <div class="meta">
           <div class="meta-count"><span id="cursor">0</span><span> / </span><span id="total">0</span></div>
           <div class="meta-stage" id="stage">Inativo</div>
+          <div class="meta-client" id="current-client"></div>
         </div>
       </div>
 
       <div class="bar-wrap">
         <div class="bar"><div class="bar-fill" id="bar"></div></div>
+        <div class="bar-label"><span id="phase-label">Inativo</span><span id="stage-pct">0%</span></div>
       </div>
 
       <div class="metrics">
@@ -426,7 +443,7 @@ function renderHtmlPage(params) {
       const secret = ${JSON.stringify(secret)};
 
       const RING_CIRC = 251.3;
-      const POLL_MS = 2000;
+      const POLL_MS = 1500;
 
       const $ = (id) => document.getElementById(id);
       const badge = $('badge');
@@ -450,6 +467,9 @@ function renderHtmlPage(params) {
       const btnRefresh = $('btn-refresh');
       const optReset = $('opt-reset');
       const pipeline = $('pipeline');
+      const phaseLabel = $('phase-label');
+      const stagePct = $('stage-pct');
+      const currentClientEl = $('current-client');
 
       let activityEntries = [];
       let lastStage = '';
@@ -459,8 +479,11 @@ function renderHtmlPage(params) {
       let busy = false;
       let pollTimer = null;
       let knownState = {
-        running: false, cursor: 0, totalClients: 0, stage: 'idle'
+        running: false, cursor: 0, totalClients: 0, stage: 'idle',
+        overallPercent: 0, stagePercent: 0, clienteAtual: '', stageDescription: 'Inativo', phaseLabel: 'Inativo'
       };
+
+      let lastCliente = '';
 
       const STAGE_LABELS = {
         idle: 'Inativo',
@@ -529,7 +552,7 @@ function renderHtmlPage(params) {
       }
 
       function updateBadge() {
-        let cls = 'idle', label = 'Aguardando';
+        let cls = 'idle', label = 'Disponível';
         if (knownState.running) { cls = 'running'; label = 'Atualizando'; }
         else if (knownState.stage === 'done') { cls = 'completed'; label = 'Concluído'; }
         badge.className = 'status-badge ' + cls;
@@ -539,15 +562,26 @@ function renderHtmlPage(params) {
       function renderProgress() {
         const total = knownState.totalClients || 0;
         const c = knownState.cursor || 0;
-        const p = total > 0 ? Math.min(100, Math.max(0, Math.round((c / total) * 100))) : 0;
-        bar.style.width = p + '%';
+        const overall = Math.min(100, Math.max(0, knownState.overallPercent || 0));
+        const stagePctVal = Math.min(100, Math.max(0, knownState.stagePercent || 0));
+
+        bar.style.width = overall + '%';
         bar.classList.toggle('running', !!knownState.running);
-        pct.textContent = p + '%';
-        ringFill.style.strokeDashoffset = String(RING_CIRC * (1 - p / 100));
+        pct.textContent = Math.round(overall) + '%';
+        ringFill.style.strokeDashoffset = String(RING_CIRC * (1 - overall / 100));
         ring.classList.toggle('done', knownState.stage === 'done');
+
         cursorEl.textContent = c;
         totalEl.textContent = total;
-        stageEl.textContent = stageLabel(knownState.stage);
+        stageEl.textContent = knownState.stageDescription || stageLabel(knownState.stage);
+        stagePct.textContent = Math.round(stagePctVal) + '%';
+        phaseLabel.textContent = knownState.phaseLabel || stageLabel(knownState.stage);
+
+        if (knownState.clienteAtual && knownState.stage !== 'done' && knownState.stage !== 'idle') {
+          currentClientEl.textContent = knownState.clienteAtual;
+        } else {
+          currentClientEl.textContent = '';
+        }
 
         if (startTime > 0) {
           const sec = (Date.now() - startTime) / 1000;
@@ -570,10 +604,16 @@ function renderHtmlPage(params) {
         const s = knownState.stage;
         const c = knownState.cursor;
         const r = knownState.running;
+        const cli = knownState.clienteAtual || '';
         if (s !== lastStage && s !== 'idle') {
-          pushLog('Etapa: ' + stageLabel(s), 'info');
+          pushLog('Etapa: ' + (knownState.phaseLabel || stageLabel(s)), 'info');
           lastStage = s;
         }
+        if (cli && cli !== lastCliente && (s === 'database' || s === 'paused')) {
+          pushLog('Atualizando: ' + cli, 'info');
+          lastCliente = cli;
+        }
+        if (!cli) lastCliente = '';
         if (c >= 0 && lastCursor >= 0 && c - lastCursor >= 5) pushLog(c + ' clientes processados', 'info');
         if (r !== lastRunning) {
           pushLog(r ? 'Job em execução no servidor' : (s === 'done' ? 'Atualização concluída' : 'Job pausado entre ticks'), r ? 'info' : (s === 'done' ? 'success' : 'warn'));
@@ -611,7 +651,12 @@ function renderHtmlPage(params) {
             running: !!data.running,
             stage: String(data.stage || 'idle'),
             cursor: Number(data.displayCursor || data.cursor || 0),
-            totalClients: Number(data.totalClients || 0)
+            totalClients: Number(data.totalClients || 0),
+            overallPercent: Number(data.overallPercent || 0),
+            stagePercent: Number(data.stagePercent || 0),
+            clienteAtual: String(data.clienteAtual || ''),
+            stageDescription: String(data.stageDescription || ''),
+            phaseLabel: String(data.phaseLabel || '')
           };
 
           if (knownState.running && startTime === 0) startTime = Date.now();
@@ -685,7 +730,12 @@ function renderHtmlPage(params) {
         running: !!initialState.running,
         stage: String(initialState.stage || 'idle'),
         cursor: Number(initialState.cursor || 0),
-        totalClients: Number(initialState.totalClients || 0)
+        totalClients: Number(initialState.totalClients || 0),
+        overallPercent: 0,
+        stagePercent: 0,
+        clienteAtual: '',
+        stageDescription: stageLabel(String(initialState.stage || 'idle')),
+        phaseLabel: stageLabel(String(initialState.stage || 'idle'))
       };
       if (knownState.running) startTime = Date.now();
       renderProgress();

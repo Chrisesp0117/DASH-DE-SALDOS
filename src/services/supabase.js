@@ -34,7 +34,8 @@ function normalizeDatabaseRow(row) {
     status: String(row[9] || '').trim(),
     obs: String(row[10] || '').trim(),
     data_iso: row[11] || null,
-    identificador: String(row[12] || '').trim()
+    identificador: String(row[12] || '').trim(),
+    ordem_configs: Number(row[13]) || 0
   };
 }
 
@@ -57,9 +58,8 @@ async function readDatabaseRows() {
   const client = getClient();
   const { data, error } = await client
     .from(DATABASE_TABLE)
-    .select('data,cliente,plataforma,saldo,gasto_ontem,media_diaria,dias_restantes,gestor,supervisor,status,obs,data_iso,identificador,updated_at')
-    .order('gestor', { ascending: true })
-    .order('cliente', { ascending: true });
+    .select('data,cliente,plataforma,saldo,gasto_ontem,media_diaria,dias_restantes,gestor,supervisor,status,obs,data_iso,identificador,ordem_configs,updated_at')
+    .order('ordem_configs', { ascending: true });
   if (error) throw error;
   return (data || []).map(r => [
     r.data,
@@ -74,7 +74,8 @@ async function readDatabaseRows() {
     r.status,
     r.obs,
     r.data_iso,
-    r.identificador
+    r.identificador,
+    r.ordem_configs
   ]);
 }
 

@@ -29,6 +29,16 @@ function formatLastUpdatePTBR(date = new Date()) {
   return `${datePart} às ${timePart}`;
 }
 
+function origemLabel(triggeredBy) {
+  const raw = String(triggeredBy || '').trim().toLowerCase();
+  if (raw === 'manual' || raw.startsWith('manual')) return 'Manual';
+  return 'Automático';
+}
+
+function formatLastUpdateWithOrigem(triggeredBy, date = new Date()) {
+  return `${formatLastUpdatePTBR(date)} (${origemLabel(triggeredBy)})`;
+}
+
 // Helper para retry com backoff em operações do Google Sheets
 async function retryWithBackoff(operation, maxAttempts = 4, name = 'operation') {
   let attempt = 0;
@@ -98,7 +108,7 @@ async function listGestoresAtivos(sheets, spreadsheetId) {
       }
     }
 
-    return Array.from(gestores).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    return Array.from(gestores);
   } catch (error) {
     console.error('Erro ao listar gestores ativos:', error.message || error);
     return [];
@@ -189,12 +199,12 @@ function collectDashboardRows(databaseRows, gestor) {
   return { metaRows, googleRows };
 }
 
-function buildDashboardValues(gestor, metaRows, googleRows) {
+function buildDashboardValues(gestor, metaRows, googleRows, triggeredBy) {
   const values = [];
   const pushRow = (row) => values.push([row[0] || '', row[1] || '', row[2] || '', row[3] || '']);
 
-  pushRow([`Seja Bem Vindo ${gestor}!`, '', '', 'Última Atualização:']);
-  pushRow(['', '', '', formatLastUpdatePTBR()]);
+  pushRow([`Gestor: ${gestor}`, '', '', 'Última Atualização:']);
+  pushRow(['', '', '', formatLastUpdateWithOrigem(triggeredBy)]);
   pushRow(['', '', '', '']);
   pushRow(['Cliente (Meta)', 'Saldo', 'Gasto Ontem', 'Duração']);
 
@@ -396,7 +406,8 @@ async function atomicRefreshAllDashboards(sheets, spreadsheetId, options = {}) {
     for (const gestor of gestores) {
       const result = await createDashboardForGestor(sheets, spreadsheetId, gestor, {
         sheetMeta,
-        databaseRows
+        databaseRows,
+        triggeredBy: options.triggeredBy
       });
 
       resultados.push({
@@ -660,7 +671,7 @@ async function createDashboardForGestor(sheets, spreadsheetId, gestor, options =
 
     const databaseRows = Array.isArray(options.databaseRows) ? options.databaseRows : [];
     const { metaRows, googleRows } = collectDashboardRows(databaseRows, gestor);
-    const values = buildDashboardValues(gestor, metaRows, googleRows);
+    const values = buildDashboardValues(gestor, metaRows, googleRows, options.triggeredBy);
 
     const ensureResult = await ensureDashboardSheet(sheets, spreadsheetId, sheetMeta, sheetTitle);
     const sheetId = ensureResult.sheetId;
@@ -735,7 +746,8 @@ async function ensureDashboardsForAllGestores(sheets, spreadsheetId, options = {
       console.log(`[gestorDashboards] criando dashboard para gestor=${gestor} (atomic)`);
       const result = await createDashboardForGestor(sheets, spreadsheetId, gestor, {
         sheetMeta,
-        databaseRows
+        databaseRows,
+        triggeredBy: options.triggeredBy
       });
 
       resultados.push({

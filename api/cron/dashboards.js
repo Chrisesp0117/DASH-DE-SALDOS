@@ -11,7 +11,8 @@ module.exports = async (req, res) => {
   try {
     const result = await runDashboardJob({
       includeSupervisor: true,
-      includeDashboards: true
+      includeDashboards: true,
+      triggeredBy: 'cron'
     });
 
     return sendJson(res, {

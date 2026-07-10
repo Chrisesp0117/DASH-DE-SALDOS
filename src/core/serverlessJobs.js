@@ -124,6 +124,7 @@ async function runDashboardJob(options = {}) {
     const sheets = await getSheets();
     const spreadsheetId = process.env.SPREADSHEET_ID;
     const jobControl = options.jobControl || null;
+    const triggeredBy = options.triggeredBy || 'cron';
     if (jobControl) {
       const active = await assertJobStateActive(jobControl);
       if (!active.active) {
@@ -141,7 +142,8 @@ async function runDashboardJob(options = {}) {
       // Use atomic refresh to delete + rewrite all dashboards atomically
       // This prevents partial write errors during dashboard updates
       results.dashboards = await atomicRefreshAllDashboards(sheets, spreadsheetId, {
-        supervisorResult: results.supervisor
+        supervisorResult: results.supervisor,
+        triggeredBy
       });
     }
     return { ok: true, ...results };
@@ -171,6 +173,7 @@ async function runQueuedUpdateJob(options = {}) {
   const force = options.force === true;
   const resetCursor = options.resetCursor === true;
   const jobQueueId = options.jobQueueId || null;
+  const triggeredBy = options.triggeredBy || 'cron';
   if (force === false) {
     const current = await readJobState();
     const lockMeta = getJobLockMeta(current);
@@ -323,7 +326,7 @@ async function runQueuedUpdateJob(options = {}) {
   let supervisorResult = null;
   if (includeSupervisor) {
     try {
-      await touchJobState(jobControl, { stage: 'supervisor', lastAction: 'pre_supervisor' });
+      await touchJobState(jobControl, { stage: 'supervisor', lastAction: 'pre_supervisor', cliente_atual: '' });
     } catch (e) { }
     const sheets = await getSheets();
     const spreadsheetId = process.env.SPREADSHEET_ID;
@@ -344,7 +347,7 @@ async function runQueuedUpdateJob(options = {}) {
     if (includeDashboards && remainingMsAfterSupervisor < 40000) {
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       try {
-        await touchJobState(jobControl, { stage: 'dashboards_pending', lastAction: 'insufficient_time_for_dashboards' });
+        await touchJobState(jobControl, { stage: 'dashboards_pending', lastAction: 'insufficient_time_for_dashboards', cliente_atual: '' });
       } catch (e) { }
       await releaseJobState(jobControl, 'idle');
       return {
@@ -360,13 +363,14 @@ async function runQueuedUpdateJob(options = {}) {
     }
   } catch (e) { }
   try {
-    await touchJobState(jobControl, { stage: 'dashboards', lastAction: 'pre_dashboards' });
+    await touchJobState(jobControl, { stage: 'dashboards', lastAction: 'pre_dashboards', cliente_atual: '' });
   } catch (e) { }
   const dashboardResult = await runDashboardJob({
     includeSupervisor: false,
     includeDashboards,
     jobControl,
-    supervisorResult
+    supervisorResult,
+    triggeredBy
   });
   if (!dashboardResult || dashboardResult.ok === false) {
     if (heartbeatTimer) clearInterval(heartbeatTimer);

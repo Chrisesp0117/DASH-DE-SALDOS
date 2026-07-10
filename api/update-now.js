@@ -56,6 +56,16 @@ function sendJsonResponse(res, payload, statusCode = 200) {
 async function currentState() {
   const state = await readJobState();
   const lockMeta = getJobLockMeta(state);
+
+  if (!lockMeta.running) {
+    return {
+      running: false,
+      stage: 'idle',
+      cursor: 0,
+      totalClients: 0
+    };
+  }
+
   return {
     running: lockMeta.running,
     stage: String(state.stage || 'idle'),

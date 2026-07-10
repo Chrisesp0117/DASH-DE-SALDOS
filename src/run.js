@@ -42,27 +42,10 @@ function formatLastUpdatePTBR(date = new Date()) {
   return `${datePart} às ${timePart}`;
 }
 
-async function updateWelcomeStatus(sheets, spreadsheetId, text) {
-  try {
-    const meta = await sheets.spreadsheets.get({
-      spreadsheetId,
-      fields: 'sheets(properties(title))'
-    });
-    const sheetsList = (meta.data.sheets || []).map(s => s.properties && s.properties.title).filter(Boolean);
-    const welcomeTitle = sheetsList.find(t => /^bem\s*vind/i.test(String(t || '')));
-    if (!welcomeTitle) {
-      return;
-    }
-    const safe = String(welcomeTitle || '').trim().replace(/'/g, "''");
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `'${safe}'!J5`,
-      valueInputOption: 'RAW',
-      requestBody: { values: [[text]] }
-    });
-  } catch (error) {
-    console.warn('Falha ao atualizar status da aba de boas-vindas:', error && error.message ? error.message : error);
-  }
+async function updateWelcomeStatus() {
+  // Aba de boas-vindas removida do projeto. As unicas abas existentes sao SUPERVISOR, DASH-* e CONFIGS.
+  // A origem (Manual/Automático) agora e escrita em cada DASH-{Gestor} celula D2.
+  return;
 }
 
 async function readJobCursor() {
@@ -103,7 +86,8 @@ async function processClienteRow(row, indices) {
     idxLoginCustomerId,
     idxGestor,
     idxSupervisor,
-    idxRevisao
+    idxRevisao,
+    ordemConfigs
   } = indices;
 
   const cliente = (row[idxCliente] || '').trim();
@@ -182,7 +166,8 @@ async function processClienteRow(row, indices) {
     processStatus,
     obs,
     rowData ? rowData.dataIso : writeTimestamp.toISOString(),
-    rowData ? rowData.identificador : ''
+    rowData ? rowData.identificador : '',
+    ordemConfigs
   ];
 }
 
@@ -324,6 +309,7 @@ async function run(options = {}) {
   const batchRows = new Array(batchClientes.length);
   let processedCount = 0;
   let lastProgressTouchAt = 0;
+  let progressTouchInProgress = false;
 
   for (let start = 0; start < batchClientes.length; start += processConcurrency) {
     const active = await assertJobStateActive(jobControl);
@@ -339,7 +325,8 @@ async function run(options = {}) {
       const batchIndex = start + offset;
       const index = cursor + batchIndex;
       const cliente = (row[idxCliente] || '').trim();
-      
+
+      let result;
       try {
         const values = await processClienteRow(row, {
           idxCliente,
@@ -348,15 +335,15 @@ async function run(options = {}) {
           idxLoginCustomerId,
           idxGestor,
           idxSupervisor,
-          idxRevisao
+          idxRevisao,
+          ordemConfigs: index
         });
-        return { batchIndex, index, values, cliente, error: null };
+        result = { batchIndex, index, values, cliente, error: null };
       } catch (error) {
         console.error(`❌ ERRO ao processar cliente "${cliente}":`, error && error.message);
-        // Retornar linha de erro em vez de falhar o lote inteiro
-        return { 
-          batchIndex, 
-          index, 
+        result = {
+          batchIndex,
+          index,
           values: [
             new Date().toISOString(),
             cliente,
@@ -370,12 +357,40 @@ async function run(options = {}) {
             'Erro',
             `Erro ao processar: ${error && error.message ? error.message : 'desconhecido'}`,
             new Date().toISOString(),
-            ''
+            '',
+            index
           ],
           cliente,
           error: error && error.message ? error.message : String(error)
         };
       }
+
+      try {
+        const now = Date.now();
+        const isLast = (index + 1) >= (cursor + batchClientes.length);
+        const shouldTouch = isLast || (now - lastProgressTouchAt) >= progressUpdateIntervalMs;
+        if (shouldTouch && !progressTouchInProgress) {
+          progressTouchInProgress = true;
+          lastProgressTouchAt = now;
+          touchJobState(jobControl, {
+            stage: 'database',
+            progressCursor: index + 1,
+            totalClients: totalClientes,
+            lastAction: 'progress',
+            cliente_atual: result.cliente
+          }).then(() => {
+            progressTouchInProgress = false;
+            console.log('[progress] progressCursor atualizado para ' + (index + 1) + '/' + totalClientes + ' | cliente="' + result.cliente + '"');
+          }).catch((e) => {
+            progressTouchInProgress = false;
+            console.warn('[progress-warn] Erro ao atualizar progressCursor:', e && e.message);
+          });
+        }
+      } catch (e) {
+        console.warn('[progress-external] erro não fatal:', e && e.message);
+      }
+
+      return result;
     }));
 
     chunkResults.sort((a, b) => a.batchIndex - b.batchIndex);
@@ -393,23 +408,6 @@ async function run(options = {}) {
       }
 
       processedCount += 1;
-      const now = Date.now();
-      const shouldTouchProgress = processedCount === batchClientes.length || (now - lastProgressTouchAt) >= progressUpdateIntervalMs;
-      if (shouldTouchProgress) {
-        try {
-          console.log('[progress-touch] Tentando atualizar progressCursor para ' + (item.index + 1) + ', totalClientes=' + totalClientes);
-          await touchJobState(jobControl, {
-            stage: 'database',
-            progressCursor: item.index + 1,
-            totalClients: totalClientes,
-            lastAction: 'progress'
-          });
-          lastProgressTouchAt = now;
-          console.log('[progress] progressCursor atualizado para ' + (item.index + 1) + '/' + totalClientes);
-        } catch (e) {
-          console.error('[progress-error] Erro ao atualizar progressCursor:', e && e.message);
-        }
-      }
 
       batchRows[item.batchIndex] = { index: item.index, values: item.values };
     }
@@ -469,16 +467,6 @@ async function run(options = {}) {
 
   if (!options.jobControl) {
     await finishJobState(jobControl, 'idle');
-  }
-
-  try {
-    await updateWelcomeStatus(
-      sheets,
-      process.env.SPREADSHEET_ID,
-      `Atualizado em ${formatLastUpdatePTBR()}`
-    );
-  } catch (e) {
-    console.warn('Falha ao atualizar status final na aba de boas-vindas:', e && e.message ? e.message : e);
   }
 
   console.log('DATABASE atualizada');

@@ -22,8 +22,20 @@ CREATE TABLE IF NOT EXISTS public.database_rows (
   obs             TEXT,
   data_iso        TIMESTAMPTZ,
   identificador   TEXT DEFAULT '',
+  ordem_configs   INTEGER DEFAULT 0,
   updated_at      TIMESTAMPTZ DEFAULT now()
 );
+
+-- Garante que a coluna ordem_configs exista mesmo em bases já criadas
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'database_rows' AND column_name = 'ordem_configs'
+  ) THEN
+    ALTER TABLE public.database_rows ADD COLUMN ordem_configs INTEGER DEFAULT 0;
+  END IF;
+END$$;
 
 -- Constraint única: um registro por cliente + plataforma + identificador.
 -- Permite o upsert idempotente usado pelo run.js (onConflict: 'cliente,plataforma,identificador').
@@ -43,6 +55,7 @@ CREATE INDEX IF NOT EXISTS idx_database_rows_gestor       ON public.database_row
 CREATE INDEX IF NOT EXISTS idx_database_rows_supervisor    ON public.database_rows (supervisor);
 CREATE INDEX IF NOT EXISTS idx_database_rows_plataforma    ON public.database_rows (plataforma);
 CREATE INDEX IF NOT EXISTS idx_database_rows_updated_at    ON public.database_rows (updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_database_rows_ordem_configs ON public.database_rows (ordem_configs);
 
 -- ---------------------------------------------------------------------------
 -- 2) JOB_STATE — estado do job (linha única, sempre sobrescrita)
@@ -65,8 +78,20 @@ CREATE TABLE IF NOT EXISTS public.job_state (
   "takeoverBy"    TEXT,
   "auditPointer"  TEXT DEFAULT 'JOB_HISTORY',
   stage           TEXT DEFAULT 'idle',
+  cliente_atual   TEXT DEFAULT '',
   CONSTRAINT job_state_singleton CHECK (id = 1)
 );
+
+-- Garante colunas novas mesmo em bases já criadas
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'job_state' AND column_name = 'cliente_atual'
+  ) THEN
+    ALTER TABLE public.job_state ADD COLUMN cliente_atual TEXT DEFAULT '';
+  END IF;
+END$$;
 
 -- Garante que sempre exista a linha única (id=1)
 INSERT INTO public.job_state (id, status)
