@@ -9,6 +9,7 @@ const {
   reenqueueJob,
   getQueueStats
 } = require('../../src/services/jobQueue');
+const { readJobState, getJobLockMeta } = require('../../src/core/jobStateSupabase');
 
 /**
  * /api/cron/advance-queue
@@ -61,6 +62,26 @@ module.exports = async (req, res) => {
 
     console.log('[advance-queue] claimed job_queue.id=' + claimed.id + ' options=' + JSON.stringify(jobOptions) + ' attempts=' + claimed.attempts);
 
+    // Decide se força o lock do job_state. Em retries (attempts>1), assumimos que o worker anterior morreu.
+    // Caso o job_state anterior esteja com lease ativa e heartbeat fresco (job realmente rodando em outro worker),
+    // preferimos não forçar e sim re-enfileirar para tentar depois, evitando interromper um job em andamento.
+    let forceLock = claimed.attempts > 1;
+    try {
+      if (forceLock) {
+        const st = await readJobState();
+        const meta = getJobLockMeta(st);
+        // Se ainda há lease ativa e heartbeat fresco, um job legítimo pode estar em andamento — não forçar
+        if (meta.running) {
+          console.log('[advance-queue] retry com lease ativa e heartbeat fresco; não forçando lock (job_state.generation=' + st.generation + ')');
+          forceLock = false;
+        } else {
+          console.log('[advance-queue] retry com lock obsoleto (stale=' + meta.staleByHeartbeat + ', leaseActive=' + meta.leaseActive + '); forçando lock');
+        }
+      }
+    } catch (e) {
+      console.warn('[advance-queue] falha ao ler job_state antes de forçar lock:', e && e.message);
+    }
+
     // 3. Executa (sem auto-chain; se esgotar, re-enfileira e o próximo tick continua)
     const result = await runQueuedUpdateJob({
       jobQueueId: claimed.id,
@@ -70,19 +91,32 @@ module.exports = async (req, res) => {
       includeDashboards: jobOptions.includeDashboards !== false,
       resetCursor: jobOptions.resetCursor === true,
       triggeredBy: claimed.triggered_by || 'cron',
-      force: claimed.attempts > 1 ? true : false  // em retries, força o lock (já sabemos que o worker anterior morreu)
+      force: forceLock  // em retries com lock obsoleto, força o lock (já sabemos que o worker anterior morreu)
     });
 
     // 4. Atualiza a fila conforme resultado
     if (!result || result.ok === false) {
       // Falha de verdade (não quota, não running) — marca failed
       if (result && result.shouldReenqueue) {
+        const MAX_REENQUEUE_ATTEMPTS = Number(process.env.JOB_QUEUE_MAX_ATTEMPTS || 5);
+        const currentAttempts = Number(claimed.attempts) || 1;
+        if (currentAttempts >= MAX_REENQUEUE_ATTEMPTS) {
+          console.warn('[advance-queue] job ' + claimed.id + ' atingiu maxAttempts=' + MAX_REENQUEUE_ATTEMPTS + ' — marcando failed para não prender a fila');
+          await failJob(claimed.id, 'max_attempts_reached: ' + (result.reason || 'needs_retry'));
+          return sendJson(res, {
+            ok: false,
+            message: 'Job atingiu máximo de tentativas e foi marcado failed.',
+            jobId: claimed.id,
+            result
+          }, 500);
+        }
         await reenqueueJob(claimed.id, result.reason || 'needs_retry');
         return sendJson(res, {
           ok: true,
           message: 'Job re-enfileirado para próximo tick.',
           reason: result.reason || 'needs_retry',
           jobId: claimed.id,
+          attempts: currentAttempts,
           result
         }, 202);
       }
@@ -114,6 +148,18 @@ module.exports = async (req, res) => {
 
     // Não terminou (time_budget_reached, insufficient_time_for_dashboards, restarted_by_newer_job, quota_exceeded) — re-enfileira
     if (result.shouldReenqueue) {
+      const MAX_REENQUEUE_ATTEMPTS = Number(process.env.JOB_QUEUE_MAX_ATTEMPTS || 5);
+      const currentAttempts = Number(claimed.attempts) || 1;
+      if (currentAttempts >= MAX_REENQUEUE_ATTEMPTS && result.reason !== 'time_budget_reached' && result.reason !== 'quota_exceeded' && result.reason !== 'insufficient_time_for_dashboards') {
+        console.warn('[advance-queue] job ' + claimed.id + ' atingiu maxAttempts=' + MAX_REENQUEUE_ATTEMPTS + ' em reason=' + result.reason + ' — marcando failed');
+        await failJob(claimed.id, 'max_attempts_reached: ' + (result.reason || 'time_budget_reached'));
+        return sendJson(res, {
+          ok: false,
+          message: 'Job atingiu máximo de tentativas e foi marcado failed.',
+          jobId: claimed.id,
+          result
+        }, 500);
+      }
       await reenqueueJob(claimed.id, result.reason || 'time_budget_reached');
       return sendJson(res, {
         ok: true,
@@ -121,6 +167,7 @@ module.exports = async (req, res) => {
         finished: false,
         reason: result.reason || 'time_budget_reached',
         jobId: claimed.id,
+        attempts: currentAttempts,
         iterations: result.iterations,
         totalProcessed: result.totalProcessed,
         reenqueuedStale

@@ -103,11 +103,20 @@ async function failJob(jobId, errorMessage) {
 
 async function reenqueueJob(jobId, reason = 'time_budget_reached') {
   const client = getClient();
+  const { data: current, error: selError } = await client
+    .from(JOB_QUEUE_TABLE)
+    .select('id,attempts')
+    .eq('id', jobId)
+    .maybeSingle();
+  if (selError) throw selError;
+  if (!current) return null;
+  const nextAttempts = (Number(current.attempts) || 0) + 1;
   const { data, error } = await client
     .from(JOB_QUEUE_TABLE)
     .update({
       status: 'pending',
       started_at: null,
+      attempts: nextAttempts,
       error: String(reason || '').slice(0, 500)
     })
     .eq('id', jobId)

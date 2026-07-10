@@ -2,6 +2,7 @@ require('dotenv').config({ path: '.env' });
 
 const { assertCronAuth, sendJson } = require('../../src/core/serverlessJobs');
 const { enqueueJob } = require('../../src/services/jobQueue');
+const { readJobState } = require('../../src/core/jobStateSupabase');
 
 function getQueryValue(urlValue, key) {
   try {
@@ -30,12 +31,34 @@ module.exports = async (req, res) => {
     const batchSize = Math.max(5, Number(batchSizeRaw));
 
     const resetRaw = (req && req.query && req.query.reset) || getQueryValue(req && req.url, 'reset');
-    const resetCursor = String(resetRaw || '').toLowerCase() === '1' || String(resetRaw || '').toLowerCase() === 'true';
+    let resetCursor = String(resetRaw || '').toLowerCase() === '1' || String(resetRaw || '').toLowerCase() === 'true';
 
     const dbOnlyRaw = (req && req.query && req.query.databaseOnly) || getQueryValue(req && req.url, 'databaseOnly');
     const databaseOnly = String(dbOnlyRaw || '').toLowerCase() === '1' || String(dbOnlyRaw || '').toLowerCase() === 'true';
 
     const triggeredByRaw = (req && req.query && req.query.triggered_by) || getQueryValue(req && req.url, 'triggered_by') || 'cron';
+
+    // Se o job_state anterior está "done" ou com cursor >= totalClients, este novo job precisa resetar o cursor
+    // para processar todos os clientes novamente. Sem isso, o job "termina" imediatamente sem atualizar dados.
+    // Só fazemos isso se resetCursor não foi explicitamente passed=false pelo caller (mas como default é false,
+    // precisamos forçar quando detectamos estado "done" ou cursor exausto).
+    if (!resetCursor) {
+      try {
+        const state = await readJobState();
+        const stage = String(state.stage || 'idle');
+        const totalClients = Number(state.totalClients) || 0;
+        const progressCursor = Number(state.progressCursor) || 0;
+        const storedCursor = Number(state.cursor) || 0;
+        const effectiveCursor = Math.max(progressCursor, storedCursor);
+        const looksDone = stage === 'done' || (totalClients > 0 && effectiveCursor >= totalClients);
+        if (looksDone) {
+          resetCursor = true;
+          console.log('[enqueue] job_state stage=' + stage + ', cursor=' + effectiveCursor + '/' + totalClients + ' — forçando resetCursor=true para reprocessar clientes');
+        }
+      } catch (e) {
+        console.warn('[enqueue] falha ao ler job_state para decisão de reset:', e && e.message);
+      }
+    }
 
     const jobOptions = {
       batchSize,
