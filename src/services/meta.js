@@ -89,7 +89,10 @@ async function getMetaData(accountId, token, context = {}) {
   let saldo = null;
   const identificador = hasValidSpendCap ? '' : '💳 CARTÃO';
   if (hasValidSpendCap) {
-    saldo = Math.max(0, spendCapMajor - amountSpentMajor);
+    const rawSaldo = Math.max(0, spendCapMajor - amountSpentMajor);
+    // Ajuste global baseado na média histórica entre API e painel do Meta
+    const globalAdjPct = Number(process.env.META_GLOBAL_ADJUST_PCT) || 13.85;
+    saldo = Number((rawSaldo * (1 + globalAdjPct / 100)).toFixed(2));
   }
 
   const gastoOntem = parseMetaAmount(spend7dRes.data?.data?.[0]?.spend, false);
@@ -99,6 +102,8 @@ async function getMetaData(accountId, token, context = {}) {
   return {
     ok: true,
     saldo: saldo === null ? null : Number(saldo),
+    spendCap: hasValidSpendCap ? Number(spendCapMajor) : null,
+    amountSpent: hasValidSpendCap ? Number(amountSpentMajor) : null,
     gastoOntem: Number(gastoOntem),
     gasto7d: Number(gastoOntem),
     media: Number(media),
