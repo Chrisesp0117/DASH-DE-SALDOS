@@ -20,6 +20,30 @@ function getClient() {
   return _client;
 }
 
+/**
+ * Descreve erros do Supabase/PostgREST com código, detalhes e hint.
+ * O .message sozinho costuma ser genérico demais para diagnóstico.
+ */
+function describeSupabaseError(error) {
+  if (!error) return 'erro desconhecido';
+  const parts = [error.message || String(error)];
+  if (error.code) parts.push('code=' + error.code);
+  if (error.details) parts.push('details=' + error.details);
+  if (error.hint) parts.push('hint=' + error.hint);
+  return parts.join(' | ');
+}
+
+/**
+ * Chave de conflito (cliente, plataforma, identificador) de uma linha posicional,
+ * igual à usada no onConflict do upsert e à constraint uq_database_rows_cpi.
+ */
+function conflictKeyOfRow(row) {
+  const cliente = String(row[1] || '').trim();
+  const plataforma = String(row[2] || '').trim().toUpperCase();
+  const identificador = String(row[12] || '').trim();
+  return JSON.stringify([cliente, plataforma, identificador]);
+}
+
 function normalizeDatabaseRow(row) {
   return {
     data: row[0] || '',
@@ -42,12 +66,29 @@ function normalizeDatabaseRow(row) {
 async function upsertDatabaseRows(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return { upserted: 0 };
   const client = getClient();
-  const payloads = rows.map(normalizeDatabaseRow);
+
+  // Deduplica pela chave de conflito (cliente, plataforma, identificador).
+  // O Postgres rejeita upsert em lote quando o próprio lote contém chaves repetidas:
+  // "ON CONFLICT DO UPDATE command cannot affect row a second time". Isso acontece
+  // quando o CONFIGS lista o mesmo cliente+plataforma mais de uma vez.
+  // Manter a última ocorrência replica a semântica de upserts sequenciais.
+  const uniqueRows = new Map();
+  for (const row of rows) {
+    uniqueRows.set(conflictKeyOfRow(row), row);
+  }
+  const payloads = Array.from(uniqueRows.values()).map(normalizeDatabaseRow);
+
   const { error } = await client
     .from(DATABASE_TABLE)
     .upsert(payloads, { onConflict: 'cliente,plataforma,identificador' });
-  if (error) throw error;
-  return { upserted: payloads.length };
+  if (error) {
+    const described = describeSupabaseError(error);
+    console.error('[upsertDatabaseRows] erro ao upsertar ' + payloads.length + ' linha(s) em ' + DATABASE_TABLE + ': ' + described);
+    const err = new Error('Supabase upsert falhou em ' + DATABASE_TABLE + ': ' + described);
+    err.supabaseError = error;
+    throw err;
+  }
+  return { upserted: payloads.length, duplicates: rows.length - payloads.length };
 }
 
 async function upsertDatabaseRow(row) {
@@ -60,7 +101,10 @@ async function readDatabaseRows() {
     .from(DATABASE_TABLE)
     .select('data,cliente,plataforma,saldo,gasto_ontem,media_diaria,dias_restantes,gestor,supervisor,status,obs,data_iso,identificador,ordem_configs,updated_at')
     .order('ordem_configs', { ascending: true });
-  if (error) throw error;
+  if (error) {
+    console.error('[readDatabaseRows] erro ao ler ' + DATABASE_TABLE + ': ' + describeSupabaseError(error));
+    throw error;
+  }
   return (data || []).map(r => [
     r.data,
     r.cliente,
@@ -82,13 +126,18 @@ async function readDatabaseRows() {
 async function clearDatabase() {
   const client = getClient();
   const { error } = await client.from(DATABASE_TABLE).delete().neq('id', 0);
-  if (error) throw error;
+  if (error) {
+    console.error('[clearDatabase] erro ao limpar ' + DATABASE_TABLE + ': ' + describeSupabaseError(error));
+    throw error;
+  }
   return { cleared: true };
 }
 
 module.exports = {
   DATABASE_TABLE,
   getClient,
+  describeSupabaseError,
+  conflictKeyOfRow,
   normalizeDatabaseRow,
   upsertDatabaseRow,
   upsertDatabaseRows,

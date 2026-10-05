@@ -418,8 +418,8 @@ async function run(options = {}) {
   const valuesToWrite = validBatchRows.map(item => item.values);
 
   try {
-    await upsertDatabaseRows(valuesToWrite);
-    console.log('[run] ' + valuesToWrite.length + ' linha(s) upsertada(s) na DATABASE (Supabase)');
+    const upsertResult = await upsertDatabaseRows(valuesToWrite);
+    console.log('[run] ' + upsertResult.upserted + ' linha(s) upsertada(s) na DATABASE (Supabase)' + (upsertResult.duplicates ? ' — ' + upsertResult.duplicates + ' duplicada(s) no lote foram deduplicadas' : ''));
   } catch (e) {
     console.error('[run] Erro ao upsertar DATABASE no Supabase:', e && e.message);
     throw e;
