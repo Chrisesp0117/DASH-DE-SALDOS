@@ -234,22 +234,22 @@ function buildDashboardValues(gestor, metaRows, googleRows, triggeredBy) {
   pushRow([`Gestor: ${gestor}`, '', '', 'Última Atualização:']);
   pushRow(['', '', '', formatLastUpdateWithOrigem(triggeredBy)]);
   pushRow(['', '', '', '']);
-  pushRow(['Cliente (Meta)', 'Saldo', 'Gasto Ontem', 'Duração', 'Leads', 'Resultados', 'Mensagens', 'CTR', 'Frequência', 'CPC']);
+  pushRow(['Cliente (Meta)', 'Saldo', 'Gasto Ontem', 'Duração', 'Resultados', 'Leads', 'Mensagens', 'CTR', 'Frequência', 'CPC']);
 
   for (const item of metaRows) {
     pushRow([
       item.cliente, item.saldo, item.gastoOntem, item.duracao,
-      item.leads, item.resultados, item.mensagens, item.ctr, item.frequencia, item.cpc
+      item.resultados, item.leads, item.mensagens, item.ctr, item.frequencia, item.cpc
     ]);
   }
 
   pushRow(['', '', '', '', '', '', '', '', '', '']);
-  pushRow(['Cliente (Google)', 'Saldo', 'Gasto Ontem', 'Duração', 'Leads', 'Resultados', 'Mensagens', 'CTR', 'Frequência', 'CPC']);
+  pushRow(['Cliente (Google)', 'Saldo', 'Gasto Ontem', 'Duração', 'Resultados', 'Leads', 'Mensagens', 'CTR', 'Frequência', 'CPC']);
 
   for (const item of googleRows) {
     pushRow([
       item.cliente, item.saldo, item.gastoOntem, item.duracao,
-      item.leads, item.resultados, item.mensagens, item.ctr, item.frequencia, item.cpc
+      item.resultados, item.leads, item.mensagens, item.ctr, item.frequencia, item.cpc
     ]);
   }
 
