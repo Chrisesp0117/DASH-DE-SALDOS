@@ -23,6 +23,12 @@ CREATE TABLE IF NOT EXISTS public.database_rows (
   data_iso        TIMESTAMPTZ,
   identificador   TEXT DEFAULT '',
   ordem_configs   INTEGER DEFAULT 0,
+  leads           TEXT DEFAULT '-',
+  resultados      TEXT DEFAULT '-',
+  mensagens       TEXT DEFAULT '-',
+  ctr             TEXT DEFAULT '-',
+  frequencia      TEXT DEFAULT '-',
+  cpc             TEXT DEFAULT '-',
   updated_at      TIMESTAMPTZ DEFAULT now()
 );
 
@@ -36,6 +42,19 @@ BEGIN
     ALTER TABLE public.database_rows ADD COLUMN ordem_configs INTEGER DEFAULT 0;
   END IF;
 END$$;
+
+-- ---------------------------------------------------------------------------
+-- 1.1) Colunas de insights de performance (leads, resultados, mensagens, ctr,
+--      frequencia, cpc) exibidas nas abas DASH-{Gestor}. Migração idempotente:
+--      rode este bloco em bases já criadas antes/depois do deploy — o código
+--      degrada graciosamente (mostra "-") enquanto a migração não for aplicada.
+-- ---------------------------------------------------------------------------
+ALTER TABLE public.database_rows ADD COLUMN IF NOT EXISTS leads      TEXT DEFAULT '-';
+ALTER TABLE public.database_rows ADD COLUMN IF NOT EXISTS resultados TEXT DEFAULT '-';
+ALTER TABLE public.database_rows ADD COLUMN IF NOT EXISTS mensagens  TEXT DEFAULT '-';
+ALTER TABLE public.database_rows ADD COLUMN IF NOT EXISTS ctr        TEXT DEFAULT '-';
+ALTER TABLE public.database_rows ADD COLUMN IF NOT EXISTS frequencia TEXT DEFAULT '-';
+ALTER TABLE public.database_rows ADD COLUMN IF NOT EXISTS cpc       TEXT DEFAULT '-';
 
 -- Constraint única: um registro por cliente + plataforma + identificador.
 -- Permite o upsert idempotente usado pelo run.js (onConflict: 'cliente,plataforma,identificador').

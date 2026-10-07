@@ -146,12 +146,51 @@ async function getGoogleData(customerId, refreshToken, context = {}) {
       FROM account_budget
     `), 20000, 'google budget query');
 
-    const spendPromise = withTimeout(customer.query(`
+    // Métricas de ontem (contrato). "Resultados" = conversions (coluna Conversões,
+    // primárias); "Leads" = all_conversions (Todas as conversões, inclui cross-device).
+    const CORE_METRICS_QUERY = `
       SELECT
-        metrics.cost_micros
+        metrics.cost_micros,
+        metrics.clicks,
+        metrics.impressions,
+        metrics.conversions,
+        metrics.all_conversions,
+        metrics.ctr,
+        metrics.average_cpc
       FROM customer
       WHERE segments.date DURING YESTERDAY
-    `).then(rows => ({ ok: true, rows })).catch(err => ({ ok: false, err })), 20000, 'google spend query');
+    `;
+
+    // Alcance/frequência nem sempre são aceitas com segmento de data em todas as
+    // contas — por isso são tentadas primeiro e há fallback para o conjunto básico.
+    const FULL_METRICS_QUERY = `
+      SELECT
+        metrics.cost_micros,
+        metrics.clicks,
+        metrics.impressions,
+        metrics.conversions,
+        metrics.all_conversions,
+        metrics.ctr,
+        metrics.average_cpc,
+        metrics.reach,
+        metrics.average_impression_frequency_per_user
+      FROM customer
+      WHERE segments.date DURING YESTERDAY
+    `;
+
+    const spendPromise = withTimeout((async () => {
+      try {
+        const rows = await customer.query(FULL_METRICS_QUERY);
+        return { ok: true, rows };
+      } catch (err) {
+        try {
+          const rows = await customer.query(CORE_METRICS_QUERY);
+          return { ok: true, rows, reducedMetrics: true };
+        } catch (err2) {
+          return { ok: false, err: err2 };
+        }
+      }
+    })(), 20000, 'google spend query');
 
     const budgetRows = await budgetPromise;
     const spendResult = await spendPromise;
@@ -175,12 +214,41 @@ async function getGoogleData(customerId, refreshToken, context = {}) {
     }
 
     let gastoOntem = 0;
+    let performance = {
+      leads: null,
+      resultados: null,
+      mensagens: null,
+      ctr: null,
+      cpc: null,
+      frequencia: null
+    };
     try {
       if (!spendResult.ok) {
         throw spendResult.err;
       }
       const spendRows = spendResult.rows;
-      gastoOntem = (spendRows && spendRows[0] && spendRows[0].metrics && spendRows[0].metrics.cost_micros) ? spendRows[0].metrics.cost_micros / 1000000 : 0;
+      const m = (spendRows && spendRows[0] && spendRows[0].metrics) || {};
+      gastoOntem = m.cost_micros ? m.cost_micros / 1000000 : 0;
+
+      // Insights de performance de ontem
+      const impressoes = Number(m.impressions || 0);
+      const alcance = Number(m.reach || 0);
+      const freqBruta = m.average_impression_frequency_per_user != null
+        ? Number(m.average_impression_frequency_per_user)
+        : null;
+      const frequencia = (freqBruta !== null && Number.isFinite(freqBruta) && freqBruta > 0)
+        ? freqBruta
+        : (alcance > 0 ? impressoes / alcance : null);
+
+      performance = {
+        // Resultados = "Conversões" (primárias) | Leads = "Todas as conversões"
+        resultados: Number.isFinite(Number(m.conversions)) ? Number(m.conversions) : 0,
+        leads: Number.isFinite(Number(m.all_conversions)) ? Number(m.all_conversions) : 0,
+        mensagens: null, // não há métrica de mensagens equivalente no Google Ads
+        ctr: Number(m.ctr || 0) * 100, // GAQL devolve razão; padroniza em pontos percentuais
+        cpc: m.average_cpc ? m.average_cpc / 1000000 : 0,
+        frequencia: frequencia !== null && Number.isFinite(frequencia) ? Number(frequencia.toFixed(2)) : null
+      };
     } catch (spendErr) {
       const rawSpend = (spendErr && spendErr.response && JSON.stringify(spendErr.response.errors)) || (spendErr && spendErr.message) || String(spendErr);
       if (rawSpend.includes('REQUESTED_METRICS_FOR_MANAGER')) {
@@ -195,7 +263,13 @@ async function getGoogleData(customerId, refreshToken, context = {}) {
           media: 0,
           dias: 0,
           loginCustomerId: loginCustomerId || '',
-          identificador: '📂 MANAGER'
+          identificador: '📂 MANAGER',
+          leads: null,
+          resultados: null,
+          mensagens: null,
+          ctr: null,
+          cpc: null,
+          frequencia: null
         };
       }
       throw spendErr;
@@ -211,7 +285,13 @@ async function getGoogleData(customerId, refreshToken, context = {}) {
       media: media,
       dias: dias.toFixed(1),
       loginCustomerId: loginCustomerId || '',
-      identificador: identificador
+      identificador: identificador,
+      leads: performance.leads,
+      resultados: performance.resultados,
+      mensagens: performance.mensagens,
+      ctr: performance.ctr,
+      cpc: performance.cpc,
+      frequencia: performance.frequencia
     };
   }
 

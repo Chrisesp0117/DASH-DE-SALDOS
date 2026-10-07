@@ -11,6 +11,9 @@ const { readDatabaseRows } = require('../services/supabase');
 const DASH_PREFIX = 'DASH-';
 const DASH_LAST_UPDATE_LABEL_CELL = 'D1';
 const DASH_LAST_UPDATE_VALUE_CELL = 'D2';
+// Total de colunas usadas pelas abas DASH (A-J). Da coluna K em diante é
+// espaço livre do usuário — nunca é escrito nem apagado pelo sistema.
+const DASH_TOTAL_COLUMNS = 10;
 
 function formatLastUpdatePTBR(date = new Date()) {
   const datePart = new Intl.DateTimeFormat('pt-BR', {
@@ -187,10 +190,16 @@ function collectDashboardRows(databaseRows, gestor) {
     const item = {
       cliente: String(row[1] || '').trim(),
       saldo: String(row[3] || '').trim(),
-      gastoMedio: String(row[5] || '').trim(),
-      duracao: String(row[6] || '').trim(),
-      gastoOntem: parseLocaleNumber(row[5]),
-      critical: isCriticalRow({ duracao: row[6], gastoOntem: row[5] })
+      // Gasto de ontem real (índice 4) — igual à coluna do SUPERVISOR
+      gastoOntem: String(row[4] || '').trim() || '-',
+      duracao: String(row[6] || '').trim() || '-',
+      leads: insightCell(row[14]),
+      resultados: insightCell(row[15]),
+      mensagens: insightCell(row[16]),
+      ctr: insightCell(row[17]),
+      frequencia: insightCell(row[18]),
+      cpc: insightCell(row[19]),
+      critical: isCriticalRow({ duracao: row[6], gastoOntem: row[4] })
     };
 
     if (plataforma === 'META') {
@@ -203,24 +212,45 @@ function collectDashboardRows(databaseRows, gestor) {
   return { metaRows, googleRows };
 }
 
+function insightCell(value) {
+  if (value === null || value === undefined) return '-';
+  const text = String(value).trim();
+  return text === '' ? '-' : text;
+}
+
 function buildDashboardValues(gestor, metaRows, googleRows, triggeredBy) {
   const values = [];
-  const pushRow = (row) => values.push([row[0] || '', row[1] || '', row[2] || '', row[3] || '']);
+  // Aba DASH usa as colunas A-J (10 colunas); da coluna K em diante fica livre
+  // para anotações manuais — o apagador limpa apenas A:J.
+  const pushRow = (row) => {
+    const padded = [];
+    for (let i = 0; i < DASH_TOTAL_COLUMNS; i++) {
+      const value = row[i];
+      padded.push(value === null || value === undefined ? '' : value);
+    }
+    values.push(padded);
+  };
 
   pushRow([`Gestor: ${gestor}`, '', '', 'Última Atualização:']);
   pushRow(['', '', '', formatLastUpdateWithOrigem(triggeredBy)]);
   pushRow(['', '', '', '']);
-  pushRow(['Cliente (Meta)', 'Saldo', 'Gasto Ontem', 'Duração']);
+  pushRow(['Cliente (Meta)', 'Saldo', 'Gasto Ontem', 'Duração', 'Leads', 'Resultados', 'Mensagens', 'CTR', 'Frequência', 'CPC']);
 
   for (const item of metaRows) {
-    pushRow([item.cliente, item.saldo, item.gastoMedio, item.duracao]);
+    pushRow([
+      item.cliente, item.saldo, item.gastoOntem, item.duracao,
+      item.leads, item.resultados, item.mensagens, item.ctr, item.frequencia, item.cpc
+    ]);
   }
 
-  pushRow(['', '', '', '']);
-  pushRow(['Cliente (Google)', 'Saldo', 'Gasto Ontem', 'Duração']);
+  pushRow(['', '', '', '', '', '', '', '', '', '']);
+  pushRow(['Cliente (Google)', 'Saldo', 'Gasto Ontem', 'Duração', 'Leads', 'Resultados', 'Mensagens', 'CTR', 'Frequência', 'CPC']);
 
   for (const item of googleRows) {
-    pushRow([item.cliente, item.saldo, item.gastoMedio, item.duracao]);
+    pushRow([
+      item.cliente, item.saldo, item.gastoOntem, item.duracao,
+      item.leads, item.resultados, item.mensagens, item.ctr, item.frequencia, item.cpc
+    ]);
   }
 
   return values;
@@ -284,10 +314,10 @@ async function mirrorSupervisorBlockToDashboard(sheets, spreadsheetId, sheetMeta
 
   const height = Math.max(1, sourceBlock.endRowIndex - sourceBlock.startRowIndex);
 
-  // Only clear columns A-D in DASH sheets to preserve other columns
+  // Limpa A:J (área do sistema) — da coluna K em diante é do usuário e não é tocada
   await sheets.spreadsheets.values.clear({
     spreadsheetId,
-    range: `'${sanitizeSheetName(sheetTitle)}'!A:D`
+    range: `'${sanitizeSheetName(sheetTitle)}'!A:J`
   });
 
   await retryWithBackoff(
@@ -332,8 +362,9 @@ async function mirrorSupervisorBlockToDashboard(sheets, spreadsheetId, sheetMeta
 
 /**
  * Clears all data from DASH-{Gestor} sheets to ensure clean state before atomic rewrite.
- * IMPORTANT: Clears the full dashboard writing area (A:I) so old mirrored blocks
+ * IMPORTANT: Clears the dashboard writing area (A:J) so old mirrored blocks
  * do not survive when the layout changes or a previous write was interrupted.
+ * Columns K onwards are user space and are intentionally preserved.
  * NOTE: SUPERVISOR is intentionally NOT cleared here — it must remain intact so that
  * mirrorSupervisorBlockToDashboard can copy from it in the same atomic refresh cycle.
  */
@@ -341,14 +372,14 @@ async function clearAllDashboardData(sheets, spreadsheetId, gestores = []) {
   const sheetMeta = await getSheetMeta(sheets, spreadsheetId);
   const clearRequests = [];
 
-  // Clear only columns A-D in all DASH-{Gestor} sheets (preserve other columns)
+  // Limpa A:J em todas as abas DASH-{Gestor} (colunas K+ são preservadas)
   for (const gestor of gestores) {
     const sheetTitle = `${DASH_PREFIX}${gestor}`;
     const sheet = sheetMeta.byTitle.get(sheetTitle);
     if (sheet && sheet.properties && sheet.properties.sheetId !== null) {
       clearRequests.push({
         sheetId: sheet.properties.sheetId,
-        range: `'${sanitizeSheetName(sheetTitle)}'!A:D`
+        range: `'${sanitizeSheetName(sheetTitle)}'!A:J`
       });
     }
   }
@@ -533,12 +564,13 @@ async function applyDashboardFormatting(sheets, spreadsheetId, sheetId, metaRows
     }
   });
 
+  // Barra de título do gestor ocupando A1:J1
   pushRowFormatRequests(
     requests,
     sheetId,
     1,
     0,
-    3,
+    DASH_TOTAL_COLUMNS,
     {
       backgroundColor: titleBg,
       textFormat: { bold: true, foregroundColor: titleText, fontSize: 14 },
@@ -546,21 +578,6 @@ async function applyDashboardFormatting(sheets, spreadsheetId, sheetId, metaRows
       verticalAlignment: 'MIDDLE'
     },
     'userEnteredFormat(backgroundColor,textFormat.bold,textFormat.foregroundColor,textFormat.fontSize,horizontalAlignment,verticalAlignment)'
-  );
-
-  pushRowFormatRequests(
-    requests,
-    sheetId,
-    1,
-    3,
-    4,
-    {
-      backgroundColor: titleBg,
-      textFormat: { bold: true, foregroundColor: titleText },
-      horizontalAlignment: 'LEFT',
-      verticalAlignment: 'MIDDLE'
-    },
-    'userEnteredFormat(backgroundColor,textFormat.bold,textFormat.foregroundColor,horizontalAlignment,verticalAlignment)'
   );
 
   pushRowFormatRequests(
@@ -587,7 +604,7 @@ async function applyDashboardFormatting(sheets, spreadsheetId, sheetId, metaRows
     sheetId,
     metaHeaderRow,
     0,
-    4,
+    DASH_TOTAL_COLUMNS,
     {
       backgroundColor: headerMetaBg,
       textFormat: { bold: true, foregroundColor: titleText },
@@ -621,7 +638,7 @@ async function applyDashboardFormatting(sheets, spreadsheetId, sheetId, metaRows
       format.textFormat = { bold: true, foregroundColor: rowCriticalText };
     }
 
-    pushRowFormatRequests(requests, sheetId, rowNumber, 0, 4, format, row.critical
+    pushRowFormatRequests(requests, sheetId, rowNumber, 0, DASH_TOTAL_COLUMNS, format, row.critical
       ? 'userEnteredFormat(backgroundColor,borders,textFormat.bold,textFormat.foregroundColor)'
       : fields);
   }
@@ -631,7 +648,7 @@ async function applyDashboardFormatting(sheets, spreadsheetId, sheetId, metaRows
     sheetId,
     googleHeaderRow,
     0,
-    4,
+    DASH_TOTAL_COLUMNS,
     {
       backgroundColor: headerGoogleBg,
       textFormat: { bold: true, foregroundColor: titleText },
@@ -665,12 +682,12 @@ async function applyDashboardFormatting(sheets, spreadsheetId, sheetId, metaRows
       format.textFormat = { bold: true, foregroundColor: rowCriticalText };
     }
 
-    pushRowFormatRequests(requests, sheetId, rowNumber, 0, 4, format, row.critical
+    pushRowFormatRequests(requests, sheetId, rowNumber, 0, DASH_TOTAL_COLUMNS, format, row.critical
       ? 'userEnteredFormat(backgroundColor,borders,textFormat.bold,textFormat.foregroundColor)'
       : fields);
   }
 
-  for (let col = 0; col < 4; col++) {
+  for (let col = 0; col < DASH_TOTAL_COLUMNS; col++) {
     requests.push({
       autoResizeDimensions: {
         dimensions: {
@@ -736,14 +753,14 @@ async function createDashboardForGestor(sheets, spreadsheetId, gestor, options =
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `'${sanitizeSheetName(sheetTitle)}'!A1:D${values.length}`,
+      range: `'${sanitizeSheetName(sheetTitle)}'!A1:J${values.length}`,
       valueInputOption: 'RAW',
       requestBody: { values }
     });
 
     await applyDashboardFormatting(sheets, spreadsheetId, sheetId, metaRows, googleRows);
 
-    console.log(`✅ Aba ${sheetTitle} atualizada em A:D com ${metaRows.length + googleRows.length} linha(s).`);
+    console.log(`✅ Aba ${sheetTitle} atualizada em A:J com ${metaRows.length + googleRows.length} linha(s).`);
 
     return {
       created: ensureResult.created,

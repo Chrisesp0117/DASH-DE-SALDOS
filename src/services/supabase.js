@@ -10,6 +10,10 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 
 const DATABASE_TABLE = process.env.SUPABASE_DATABASE_TABLE || 'database_rows';
 
+// Colunas principais (formato legado) + colunas de insights de performance.
+const DATABASE_CORE_COLUMNS = 'data,cliente,plataforma,saldo,gasto_ontem,media_diaria,dias_restantes,gestor,supervisor,status,obs,data_iso,identificador,ordem_configs,updated_at';
+const DATABASE_INSIGHT_COLUMNS = 'leads,resultados,mensagens,ctr,frequencia,cpc';
+
 let _client = null;
 function getClient() {
   if (!_client) {
@@ -31,6 +35,23 @@ function describeSupabaseError(error) {
   if (error.details) parts.push('details=' + error.details);
   if (error.hint) parts.push('hint=' + error.hint);
   return parts.join(' | ');
+}
+
+/**
+ * Detecta erros de coluna inexistente (migração das colunas de insights ainda
+ * não aplicada no Supabase). Usado para degradar graciosamente em vez de falhar.
+ */
+function isMissingColumnError(error) {
+  if (!error) return false;
+  const code = String(error.code || '');
+  const message = String(error.message || '');
+  return code === 'PGRST204' || code === '42703' || /could not find the '.+?' column/i.test(message);
+}
+
+function normalizeInsightCell(value) {
+  if (value === null || value === undefined) return '-';
+  const text = String(value).trim();
+  return text === '' ? '-' : text;
 }
 
 /**
@@ -59,8 +80,19 @@ function normalizeDatabaseRow(row) {
     obs: String(row[10] || '').trim(),
     data_iso: row[11] || null,
     identificador: String(row[12] || '').trim(),
-    ordem_configs: Number(row[13]) || 0
+    ordem_configs: Number(row[13]) || 0,
+    leads: normalizeInsightCell(row[14]),
+    resultados: normalizeInsightCell(row[15]),
+    mensagens: normalizeInsightCell(row[16]),
+    ctr: normalizeInsightCell(row[17]),
+    frequencia: normalizeInsightCell(row[18]),
+    cpc: normalizeInsightCell(row[19])
   };
+}
+
+function stripInsightColumns(payload) {
+  const { leads, resultados, mensagens, ctr, frequencia, cpc, ...core } = payload;
+  return core;
 }
 
 async function upsertDatabaseRows(rows) {
@@ -81,6 +113,23 @@ async function upsertDatabaseRows(rows) {
   const { error } = await client
     .from(DATABASE_TABLE)
     .upsert(payloads, { onConflict: 'cliente,plataforma,identificador' });
+  if (error && isMissingColumnError(error)) {
+    // Migração das colunas de insights ainda não aplicada: grava no formato
+    // legado para não travar a atualização e avisa no log.
+    console.warn('[upsertDatabaseRows] colunas de insights ausentes em ' + DATABASE_TABLE + ' — gravando formato legado. Rode a migração do supabase_schema.sql no Supabase.');
+    const legacyPayloads = payloads.map(stripInsightColumns);
+    const { error: legacyError } = await client
+      .from(DATABASE_TABLE)
+      .upsert(legacyPayloads, { onConflict: 'cliente,plataforma,identificador' });
+    if (legacyError) {
+      const described = describeSupabaseError(legacyError);
+      console.error('[upsertDatabaseRows] erro ao upsertar ' + legacyPayloads.length + ' linha(s) em ' + DATABASE_TABLE + ': ' + described);
+      const err = new Error('Supabase upsert falhou em ' + DATABASE_TABLE + ': ' + described);
+      err.supabaseError = legacyError;
+      throw err;
+    }
+    return { upserted: legacyPayloads.length, duplicates: rows.length - legacyPayloads.length, legacyShape: true };
+  }
   if (error) {
     const described = describeSupabaseError(error);
     console.error('[upsertDatabaseRows] erro ao upsertar ' + payloads.length + ' linha(s) em ' + DATABASE_TABLE + ': ' + described);
@@ -97,14 +146,31 @@ async function upsertDatabaseRow(row) {
 
 async function readDatabaseRows() {
   const client = getClient();
-  const { data, error } = await client
+  let data;
+  let error;
+  let legacyShape = false;
+
+  ({ data, error } = await client
     .from(DATABASE_TABLE)
-    .select('data,cliente,plataforma,saldo,gasto_ontem,media_diaria,dias_restantes,gestor,supervisor,status,obs,data_iso,identificador,ordem_configs,updated_at')
-    .order('ordem_configs', { ascending: true });
+    .select(`${DATABASE_CORE_COLUMNS},${DATABASE_INSIGHT_COLUMNS}`)
+    .order('ordem_configs', { ascending: true }));
+
+  if (error && isMissingColumnError(error)) {
+    // Migração das colunas de insights ainda não aplicada: lê no formato legado
+    // (as colunas novas retornam null e os DASHs mostram "-").
+    console.warn('[readDatabaseRows] colunas de insights ausentes em ' + DATABASE_TABLE + ' — usando leitura legada. Rode a migração do supabase_schema.sql no Supabase.');
+    ({ data, error } = await client
+      .from(DATABASE_TABLE)
+      .select(DATABASE_CORE_COLUMNS)
+      .order('ordem_configs', { ascending: true }));
+    legacyShape = true;
+  }
+
   if (error) {
     console.error('[readDatabaseRows] erro ao ler ' + DATABASE_TABLE + ': ' + describeSupabaseError(error));
     throw error;
   }
+
   return (data || []).map(r => [
     r.data,
     r.cliente,
@@ -119,7 +185,13 @@ async function readDatabaseRows() {
     r.obs,
     r.data_iso,
     r.identificador,
-    r.ordem_configs
+    r.ordem_configs,
+    legacyShape ? null : (r.leads != null ? r.leads : null),
+    legacyShape ? null : (r.resultados != null ? r.resultados : null),
+    legacyShape ? null : (r.mensagens != null ? r.mensagens : null),
+    legacyShape ? null : (r.ctr != null ? r.ctr : null),
+    legacyShape ? null : (r.frequencia != null ? r.frequencia : null),
+    legacyShape ? null : (r.cpc != null ? r.cpc : null)
   ]);
 }
 
@@ -137,6 +209,7 @@ module.exports = {
   DATABASE_TABLE,
   getClient,
   describeSupabaseError,
+  isMissingColumnError,
   conflictKeyOfRow,
   normalizeDatabaseRow,
   upsertDatabaseRow,

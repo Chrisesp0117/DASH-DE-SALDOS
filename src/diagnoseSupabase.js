@@ -109,8 +109,8 @@ async function main() {
     const { data, error } = await client.from(DATABASE_TABLE).select('*').limit(1);
     report(DATABASE_TABLE + ': select * (valida schema completo)', !error, error ? describeSupabaseError(error) : 'ok');
     if (!error && data && data.length > 0) {
-      const missing = ['data', 'cliente', 'plataforma', 'saldo', 'gasto_ontem', 'media_diaria', 'dias_restantes', 'gestor', 'supervisor', 'status', 'obs', 'data_iso', 'identificador', 'ordem_configs'].filter(col => !(col in data[0]));
-      report(DATABASE_TABLE + ': todas as colunas esperadas presentes', missing.length === 0, missing.length ? 'faltando: ' + missing.join(', ') : 'ok');
+      const missing = ['data', 'cliente', 'plataforma', 'saldo', 'gasto_ontem', 'media_diaria', 'dias_restantes', 'gestor', 'supervisor', 'status', 'obs', 'data_iso', 'identificador', 'ordem_configs', 'leads', 'resultados', 'mensagens', 'ctr', 'frequencia', 'cpc'].filter(col => !(col in data[0]));
+      report(DATABASE_TABLE + ': todas as colunas esperadas presentes', missing.length === 0, missing.length ? 'faltando: ' + missing.join(', ') + ' — rode a migração do supabase_schema.sql' : 'ok');
     }
   } catch (e) {
     report(DATABASE_TABLE + ': select * (valida schema completo)', false, e.message);

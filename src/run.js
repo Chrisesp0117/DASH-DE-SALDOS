@@ -167,7 +167,13 @@ async function processClienteRow(row, indices) {
     obs,
     rowData ? rowData.dataIso : writeTimestamp.toISOString(),
     rowData ? rowData.identificador : '',
-    ordemConfigs
+    ordemConfigs,
+    rowData ? rowData.leadsFormatado : '-',
+    rowData ? rowData.resultadosFormatado : '-',
+    rowData ? rowData.mensagensFormatado : '-',
+    rowData ? rowData.ctrFormatado : '-',
+    rowData ? rowData.frequenciaFormatado : '-',
+    rowData ? rowData.cpcFormatado : '-'
   ];
 }
 
@@ -368,7 +374,13 @@ async function run(options = {}) {
             `Erro ao processar: ${error && error.message ? error.message : 'desconhecido'}`,
             new Date().toISOString(),
             '',
-            index
+            index,
+            '-',
+            '-',
+            '-',
+            '-',
+            '-',
+            '-'
           ],
           cliente,
           error: error && error.message ? error.message : String(error)
