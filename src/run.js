@@ -207,9 +207,9 @@ async function run(options = {}) {
 
   const clientesValues = clientesRes.data.values || [];
   const headerRow = clientesValues[0] || [];
-  const clientes = clientesValues.slice(1);
+  const configRows = clientesValues.slice(1);
 
-  console.log('[DEBUG] clientesValues.length=' + clientesValues.length + ', clientes.length=' + clientes.length + ', batchSize=' + batchSize);
+  console.log('[DEBUG] clientesValues.length=' + clientesValues.length + ', configRows=' + configRows.length + ', batchSize=' + batchSize);
 
   const headerMap = new Map(
     headerRow.map((header, index) => [String(header || '').trim().toLowerCase(), index])
@@ -240,6 +240,16 @@ async function run(options = {}) {
   const idxRevisao = getIndexAny(['Revisão', 'Revisao', 'Review'], 4);
   const idxSupervisor = getIndexAny(['Supervisor', 'Supervisão', 'Supervisao'], -1);
   const idxLoginCustomerId = getIndexAny(['LoginCustomerId', 'Login Customer ID', 'MCC', 'MCC_ID', 'Login MCC'], -1);
+
+  // Considera apenas linhas com nome de cliente preenchido. Linhas residuais da
+  // CONFIGS (sem nome) não são clientes: não devem ser contadas no painel nem
+  // gravadas na DATABASE, onde criavam o bloco "Sem Gestor" e a aba DASH-Sem Gestor.
+  const clientes = configRows.filter(row => String(row[idxCliente] || '').trim() !== '');
+  const linhasSemCliente = configRows.length - clientes.length;
+  if (linhasSemCliente > 0) {
+    console.log('[run-init] ' + linhasSemCliente + ' linha(s) da CONFIGS ignorada(s) por estar sem nome de cliente');
+  }
+
   const totalClientes = clientes.length;
   console.log('[run-init] clientes.length=' + totalClientes);
 

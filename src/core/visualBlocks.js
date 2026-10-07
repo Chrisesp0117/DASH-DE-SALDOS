@@ -68,6 +68,10 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
   // Agrupa por gestor e plataforma
   const map = new Map();
   for (const r of rows) {
+    // Ignora linhas residuais sem cliente (ex.: sobras antigas na DATABASE).
+    // Sem isso, elas criam um bloco "Sem Gestor" fantasma no SUPERVISOR
+    // e, consequentemente, a aba DASH-Sem Gestor a cada atualização.
+    if (!String(r[1] || '').trim()) continue;
     const gestor = (r[7] || '').trim() || 'Sem Gestor';
     const plataforma = (r[2] || '').trim().toUpperCase();
     if (!map.has(gestor)) map.set(gestor, { GOOGLE: [], META: [] });

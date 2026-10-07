@@ -71,6 +71,8 @@ async function generateReport(sheets, spreadsheetId) {
     const errors = [];
 
     for (const r of rows) {
+      // Ignora linhas residuais sem cliente (não são clientes reais)
+      if (!String(r[1] || '').trim()) continue;
       const cliente = r[1] || '-';
       const plataforma = r[2] || '-';
       const saldo = r[3] || '-';

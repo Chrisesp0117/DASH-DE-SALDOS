@@ -170,6 +170,10 @@ function collectDashboardRows(databaseRows, gestor) {
   const googleRows = [];
 
   for (const row of databaseRows) {
+    if (!String(row[1] || '').trim()) {
+      continue; // ignora linhas residuais sem cliente
+    }
+
     const rowGestor = String(row[7] || '').trim();
     if (rowGestor !== gestor) {
       continue;
@@ -363,6 +367,52 @@ async function clearAllDashboardData(sheets, spreadsheetId, gestores = []) {
 }
 
 /**
+ * Remove a aba "DASH-Sem Gestor" quando não existe mais nenhum cliente
+ * agrupado como "Sem Gestor" (linhas residuais antigas da CONFIGS/DATABASE).
+ * Se ainda houver clientes legítimos sem gestor, a aba é preservada.
+ */
+async function deleteOrphanSemGestorSheet(sheets, spreadsheetId, sheetMeta, activeGestores) {
+  if (!sheetMeta || !sheetMeta.byTitle) {
+    return false;
+  }
+
+  const semGestorAtivo = (activeGestores || []).some(g => String(g || '').trim() === 'Sem Gestor');
+  if (semGestorAtivo) {
+    return false;
+  }
+
+  const sheetTitle = `${DASH_PREFIX}Sem Gestor`;
+  const sheet = sheetMeta.byTitle.get(sheetTitle);
+  if (!sheet || !sheet.properties || sheet.properties.sheetId === null || sheet.properties.sheetId === undefined) {
+    return false;
+  }
+
+  try {
+    await retryWithBackoff(
+      () => sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [
+            {
+              deleteSheet: {
+                sheetId: sheet.properties.sheetId
+              }
+            }
+          ]
+        }
+      }),
+      4,
+      'deleteOrphanSemGestorSheet'
+    );
+    console.log(`🗑️ Aba ${sheetTitle} removida (nenhum cliente sem gestor).`);
+    return true;
+  } catch (error) {
+    console.warn(`Aviso: não foi possível remover a aba ${sheetTitle}:`, error && error.message ? error.message : String(error));
+    return false;
+  }
+}
+
+/**
  * Atomic refresh: clear all dashboards, regenerate SUPERVISOR, rewrite all DASH sheets
  * Prevents partial write errors by doing delete + full rewrite as a single operation
  */
@@ -416,6 +466,9 @@ async function atomicRefreshAllDashboards(sheets, spreadsheetId, options = {}) {
         message: result.error || (result.rebuilt ? 'Recriada' : 'Criada')
       });
     }
+
+    // Limpeza: remove a aba órfã "DASH-Sem Gestor" quando não há mais clientes sem gestor
+    await deleteOrphanSemGestorSheet(sheets, spreadsheetId, sheetMeta, gestores);
 
     return {
       ok: true,
@@ -756,6 +809,9 @@ async function ensureDashboardsForAllGestores(sheets, spreadsheetId, options = {
         message: result.error || (result.rebuilt ? 'Recriada' : 'Criada')
       });
     }
+
+    // Limpeza: remove a aba órfã "DASH-Sem Gestor" quando não há mais clientes sem gestor
+    await deleteOrphanSemGestorSheet(sheets, spreadsheetId, sheetMeta, gestores);
 
     return {
       ok: true,
