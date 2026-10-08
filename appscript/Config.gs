@@ -22,9 +22,6 @@ const URL_ADVANCE_QUEUE = FINANCE_DASH_HOST + '/api/cron/advance-queue';
 const URL_UPDATE_NOW   = FINANCE_DASH_HOST + '/api/update-now';
 const URL_UPDATE_STATUS = FINANCE_DASH_HOST + '/api/update-status';
 
-// Página web única (abas: monitor + configurações)
-const URL_SETTINGS_UI  = FINANCE_DASH_HOST + '/api/update-now';
-
 /** Intervalo do acionador do worker: a cada 1 minuto (configure no painel Acionadores) */
 /** Intervalo sugerido do enfileirador automático: a cada 2 horas */
 
@@ -54,12 +51,6 @@ function getAdvanceQueueUrl_() {
 
 function getStatusUrl_() {
   return URL_UPDATE_STATUS;
-}
-
-function getSettingsUiUrl_() {
-  const secret = getEffectiveConfig_().secret;
-  // Página única: abre direto na aba de configurações (#configuracoes)
-  return URL_SETTINGS_UI + '?secret=' + encodeURIComponent(secret) + '#configuracoes';
 }
 
 function readProp_(key) {

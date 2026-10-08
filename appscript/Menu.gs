@@ -58,10 +58,30 @@ function abrirNovaGuia_(url) {
 }
 
 /**
+ * URLs da página web — construídas aqui mesmo para não depender de
+ * atualização do Config.gs (funciona com qualquer versão instalada).
+ */
+function getUrlPainelWeb_() {
+  const cfg = getEffectiveConfig_();
+  const base = (typeof URL_UPDATE_NOW !== 'undefined' && URL_UPDATE_NOW)
+    ? URL_UPDATE_NOW
+    : FINANCE_DASH_HOST + '/api/update-now';
+  return base + '?secret=' + encodeURIComponent(cfg.secret);
+}
+
+function getUrlConfiguracoesWeb_() {
+  const cfg = getEffectiveConfig_();
+  const base = (typeof URL_UPDATE_NOW !== 'undefined' && URL_UPDATE_NOW)
+    ? URL_UPDATE_NOW
+    : FINANCE_DASH_HOST + '/api/update-now';
+  return base + '?secret=' + encodeURIComponent(cfg.secret) + '#configuracoes';
+}
+
+/**
  * Abre a página única (aba Atualizações) em uma nova guia do navegador.
  */
 function abrirPainelWeb() {
-  abrirNovaGuia_(getUpdateNowUrl_());
+  abrirNovaGuia_(getUrlPainelWeb_());
 }
 
 /**
@@ -69,7 +89,7 @@ function abrirPainelWeb() {
  * (Atribua este script ao botão da aba CONFIGS.)
  */
 function abrirConfiguracoesWeb() {
-  abrirNovaGuia_(getSettingsUiUrl_());
+  abrirNovaGuia_(getUrlConfiguracoesWeb_());
 }
 
 function menuEnfileirarCompleta() {
