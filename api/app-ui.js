@@ -307,21 +307,41 @@ function renderAppPage(params) {
     }
     .acc-input:focus { border-color: var(--primary); }
 
-    /* DROPDOWN DE NOMES (gestor/supervisor) */
-    .sel-wrap { display: flex; gap: 4px; align-items: center; }
-    .sel-wrap > select { flex: 1; min-width: 0; }
-    .del-nome {
-      flex-shrink: 0; width: 26px; height: 26px; border-radius: 6px;
-      border: 1px solid rgba(239, 68, 68, 0.3); background: transparent; color: var(--error);
-      cursor: pointer; font-size: 12px; line-height: 1; padding: 0;
-      display: none; align-items: center; justify-content: center;
-      transition: background 0.15s ease;
+    /* DROPDOWN DE NOMES (gestor/supervisor) — componente custom */
+    .ddwrap { position: relative; }
+    .ddbox {
+      width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 6px;
+      background: var(--card-2); border: 1px solid var(--line); color: var(--ink);
+      border-radius: 7px; padding: 7px 9px; font-size: 11px; cursor: pointer;
+      font-family: inherit; text-align: left; min-width: 0;
     }
-    .sel-wrap.has-value .del-nome { display: inline-flex; }
-    .del-nome:hover { background: rgba(239, 68, 68, 0.1); }
-    .novo-input {
-      flex: 1; min-width: 0; background: var(--card-2); border: 1px solid var(--primary);
-      color: var(--ink); border-radius: 7px; padding: 7px 9px; font-size: 11px; outline: none; font-family: inherit;
+    .ddbox:hover { border-color: var(--primary); }
+    .dd-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dd-label.vazio { color: var(--muted); }
+    .dd-caret { color: var(--muted); font-size: 9px; flex-shrink: 0; }
+    .dd-menu {
+      position: fixed; z-index: 95; min-width: 220px; max-width: 340px; max-height: 300px; overflow-y: auto;
+      background: #1c1c1c; border: 1px solid #333; border-radius: 10px; padding: 6px;
+      display: none; box-shadow: 0 16px 50px rgba(0, 0, 0, 0.6);
+    }
+    .dd-menu.visible { display: block; }
+    .dd-menu::-webkit-scrollbar { width: 4px; }
+    .dd-menu::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
+    .dd-item { display: flex; align-items: center; gap: 6px; padding: 7px 9px; border-radius: 7px; cursor: pointer; font-size: 12px; }
+    .dd-item:hover { background: rgba(255, 255, 255, 0.05); }
+    .dd-item.selected { color: var(--primary); }
+    .dd-item-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dd-del {
+      flex-shrink: 0; width: 22px; height: 22px; border-radius: 5px;
+      border: 1px solid rgba(239, 68, 68, 0.3); background: transparent; color: var(--error);
+      cursor: pointer; font-size: 11px; padding: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .dd-del:hover { background: rgba(239, 68, 68, 0.12); }
+    .dd-new { color: var(--primary); font-weight: 600; border-top: 1px solid var(--line); margin-top: 4px; padding-top: 9px; border-radius: 0 0 7px 7px; }
+    .dd-input {
+      width: 100%; background: var(--card-2); border: 1px solid var(--primary);
+      color: var(--ink); border-radius: 7px; padding: 7px 9px; font-size: 12px; outline: none; font-family: inherit;
     }
 
     /* MODAL DE CONFIRMAÇÃO */
@@ -377,6 +397,8 @@ function renderAppPage(params) {
 </head>
 <body>
   <div class="toast-wrap" id="toasts"></div>
+
+  <div class="dd-menu" id="dd-menu"></div>
 
   <div class="modal-overlay" id="confirm-overlay">
     <div class="modal-box">
@@ -744,6 +766,8 @@ function renderAppPage(params) {
       function pausePolling() { if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; } }
       function resumePolling() { if (!pollTimer && activeTab === 'monitor') schedulePoll(POLL_MS); }
 
+      let doneHoldUntil = 0; // ms — segura a tela de "Concluído" ~10s após o fim do ciclo
+
       async function fetchStatus() {
         try {
           const res = await fetch('/api/update-status', {
@@ -754,6 +778,47 @@ function renderAppPage(params) {
           if (!res.ok) { showMsg('Erro ao consultar status (HTTP ' + res.status + ')', 'error'); schedulePoll(POLL_MS); return; }
           const data = await res.json();
           if (data.ok === false) { showMsg('Status indisponível: ' + (data.error || 'desconhecido'), 'error'); schedulePoll(POLL_MS); return; }
+
+          // Um job em andamento cancela qualquer feedback de conclusão anterior
+          if (data.running) doneHoldUntil = 0;
+
+          const wasRunning = knownState.running;
+          const now = Date.now();
+
+          if (wasRunning && !data.running) {
+            // O ciclo acabou de terminar: mostra "Concluído" e segura por ~10s
+            doneHoldUntil = now + 10000;
+            knownState = {
+              running: false,
+              stage: 'done',
+              cursor: knownState.cursor || 0,
+              totalClients: knownState.totalClients || 0,
+              overallPercent: 100,
+              stagePercent: 100,
+              clienteAtual: '',
+              stageDescription: 'Concluído',
+              phaseLabel: 'Concluído'
+            };
+            startTime = 0;
+            trackChanges();
+            renderProgress();
+            updateBadge();
+            updateButtons();
+            showMsg('✅ Atualização concluída com sucesso!', 'success');
+            schedulePoll(POLL_MS);
+            return;
+          }
+
+          if (!data.running && doneHoldUntil > now) {
+            // Dentro da janela de feedback de conclusão — mantém a tela como está
+            schedulePoll(POLL_MS);
+            return;
+          }
+          if (doneHoldUntil && doneHoldUntil <= now) {
+            doneHoldUntil = 0;
+            hideMsg();
+          }
+
           knownState = {
             running: !!data.running,
             stage: String(data.stage || 'idle'),
@@ -782,6 +847,8 @@ function renderAppPage(params) {
 
       async function startJob() {
         if (busy) return;
+        doneHoldUntil = 0; // clicar para atualizar cancela o feedback de conclusão na hora
+        hideMsg();
         busy = true;
         updateButtons();
         showMsg('Enfileirando atualização...', 'info');
@@ -836,7 +903,7 @@ function renderAppPage(params) {
         ms.className = 'conn-status ' + (m.configured ? 'on' : 'err');
       }
 
-      // ---------- dropdowns de gestor/supervisor ----------
+      // ---------- dropdowns de gestor/supervisor (componente custom) ----------
       function nomeList(type) {
         const n = state.nomes || {};
         return type === 'supervisor' ? (n.supervisores || []) : (n.gestores || []);
@@ -846,98 +913,136 @@ function renderAppPage(params) {
         return type === 'supervisor' ? 'supervisor' : 'gestor';
       }
 
-      function nomeOptionsHtml(type, currentValue) {
+      function nomeValue(rowEl, type) {
+        const wrap = rowEl.querySelector(type === 'supervisor' ? '.f-supervisor' : '.f-gestor');
+        return wrap ? String(wrap.dataset.value || '') : '';
+      }
+
+      let ddTarget = null; // ddwrap do campo que abriu o menu
+
+      function setDDValue(wrap, value) {
+        wrap.dataset.value = value || '';
+        const label = wrap.querySelector('.dd-label');
+        label.textContent = value || '—';
+        label.classList.toggle('vazio', !value);
+      }
+
+      function closeDDMenu() {
+        const menu = $('dd-menu');
+        menu.classList.remove('visible');
+        ddTarget = null;
+      }
+
+      function buildDDMenuHtml(type, current) {
         const list = nomeList(type);
-        let html = '<option value="">—</option>';
-        if (currentValue && !list.some(n => n === currentValue)) {
-          html += '<option value="' + esc(currentValue) + '">' + esc(currentValue) + '</option>';
-        }
+        const label = nomeLabel(type);
+        let html = '<div class="dd-item" data-value=""><span class="dd-item-name">—</span></div>';
         for (const n of list) {
-          html += '<option value="' + esc(n) + '"' + (n === currentValue ? ' selected' : '') + '>' + esc(n) + '</option>';
+          html += '<div class="dd-item' + (n === current ? ' selected' : '') + '" data-value="' + esc(n) + '">'
+            + '<span class="dd-item-name">' + esc(n) + '</span>'
+            + '<button class="dd-del" type="button" data-del="' + esc(n) + '" title="Excluir da lista">🗑</button>'
+            + '</div>';
         }
-        html += '<option value="__novo__">➕ Novo ' + nomeLabel(type) + '…</option>';
+        html += '<div class="dd-item dd-new"><span class="dd-item-name">➕ Novo ' + label + '…</span></div>';
         return html;
       }
 
-      function updateDelVisibility(sel) {
-        const wrap = sel.closest('.sel-wrap');
-        if (!wrap) return;
-        wrap.classList.toggle('has-value', sel.value !== '' && sel.value !== '__novo__');
-      }
-
-      function refreshNomeSelects() {
-        document.querySelectorAll('.sel-nome').forEach(sel => {
-          const type = sel.classList.contains('f-supervisor') ? 'supervisor' : 'gestor';
-          const wrap = sel.closest('.sel-wrap');
-          let current = sel.value;
-          if (!current || current === '__novo__') {
-            current = wrap.dataset.prevValue || '';
-          }
-          sel.innerHTML = nomeOptionsHtml(type, current);
-          sel.value = current;
-          if (sel.value !== current) sel.value = '';
-          updateDelVisibility(sel);
-        });
-      }
-
-      function nomeValue(rowEl, type) {
-        const sel = rowEl.querySelector(type === 'supervisor' ? '.f-supervisor' : '.f-gestor');
-        if (!sel) return '';
-        if (sel.value === '__novo__') {
-          const wrap = sel.closest('.sel-wrap');
-          return (wrap && wrap.dataset.prevValue) || '';
-        }
-        return sel.value || '';
-      }
-
-      function startNovoNome(sel) {
-        const wrap = sel.closest('.sel-wrap');
+      function openDDMenu(wrap) {
+        ddTarget = wrap;
         const type = wrap.dataset.nomeType;
-        if (wrap.querySelector('.novo-input')) return;
+        const current = String(wrap.dataset.value || '');
+        const menu = $('dd-menu');
+        menu.innerHTML = buildDDMenuHtml(type, current);
+        menu.classList.add('visible');
+        menu.style.visibility = 'hidden';
 
-        sel.style.display = 'none';
-        const delBtn = wrap.querySelector('.del-nome');
-        if (delBtn) delBtn.style.display = 'none';
+        const r = wrap.getBoundingClientRect();
+        const mw = menu.offsetWidth;
+        const mh = menu.offsetHeight;
+        let left = Math.max(8, Math.min(r.left, window.innerWidth - mw - 8));
+        let top = r.bottom + 4;
+        if (top + mh > window.innerHeight - 8) {
+          top = Math.max(8, r.top - mh - 4);
+        }
+        menu.style.left = left + 'px';
+        menu.style.top = top + 'px';
+        menu.style.visibility = '';
+      }
 
-        const input = document.createElement('input');
-        input.className = 'novo-input';
-        input.placeholder = 'Nome do novo ' + nomeLabel(type);
-        wrap.appendChild(input);
+      function showDDNewInput() {
+        const menu = $('dd-menu');
+        const type = ddTarget ? ddTarget.dataset.nomeType : 'gestor';
+        menu.innerHTML = '<input class="dd-input" id="dd-new-input" placeholder="Nome do novo ' + nomeLabel(type) + '">';
+        const input = menu.querySelector('#dd-new-input');
         input.focus();
-
         let done = false;
-        const restore = () => {
-          input.remove();
-          sel.style.display = '';
-          sel.value = wrap.dataset.prevValue || '';
-          updateDelVisibility(sel);
+        const voltarLista = () => {
+          if (!ddTarget) { closeDDMenu(); return; }
+          menu.innerHTML = buildDDMenuHtml(type, String(ddTarget.dataset.value || ''));
         };
-        const confirmNovo = async () => {
+        const confirmar = async () => {
           if (done) return;
           done = true;
           const nome = input.value.trim();
-          if (!nome) { restore(); return; }
+          if (!nome) { voltarLista(); return; }
           try {
             const data = await apiPost('/api/settings/nomes?secret=' + encodeURIComponent(secret), { action: 'add', type: type, nome: nome });
             state.nomes = { gestores: data.gestores || [], supervisores: data.supervisores || [] };
-            refreshNomeSelects();
-            sel.value = nome;
-            updateDelVisibility(sel);
-            input.remove();
-            sel.style.display = '';
             toast('"' + nome + '" adicionado à lista de ' + nomeLabel(type) + 's', 'success');
-            scheduleAutoSave(300);
+            if (ddTarget) {
+              setDDValue(ddTarget, nome);
+              closeDDMenu();
+              scheduleAutoSave(300);
+            } else {
+              closeDDMenu();
+            }
           } catch (e) {
             toast('Falha ao salvar: ' + e.message, 'error');
-            restore();
+            done = false;
+            voltarLista();
           }
         };
-
         input.addEventListener('keydown', (ev) => {
-          if (ev.key === 'Enter') { ev.preventDefault(); confirmNovo(); }
-          if (ev.key === 'Escape') { ev.preventDefault(); done = true; restore(); }
+          if (ev.key === 'Enter') { ev.preventDefault(); confirmar(); }
+          if (ev.key === 'Escape') { ev.preventDefault(); done = true; closeDDMenu(); }
         });
-        input.addEventListener('blur', confirmNovo);
+        input.addEventListener('blur', confirmar);
+      }
+
+      function initDDEvents() {
+        const menu = $('dd-menu');
+        menu.addEventListener('click', (ev) => {
+          const del = ev.target.closest('.dd-del');
+          if (del && ddTarget) {
+            const type = ddTarget.dataset.nomeType;
+            const nome = del.dataset.del;
+            closeDDMenu();
+            askDeleteNome(type, nome);
+            return;
+          }
+          if (ev.target.closest('.dd-new')) {
+            showDDNewInput();
+            return;
+          }
+          const item = ev.target.closest('.dd-item');
+          if (item && ddTarget) {
+            setDDValue(ddTarget, item.dataset.value || '');
+            closeDDMenu();
+            scheduleAutoSave(700);
+          }
+        });
+        document.addEventListener('click', (ev) => {
+          if (ev.target.closest && ev.target.closest('.ddbox')) return;
+          if (menu.classList.contains('visible') && !menu.contains(ev.target)) {
+            closeDDMenu();
+          }
+        });
+        window.addEventListener('scroll', (ev) => {
+          if (!menu.classList.contains('visible')) return;
+          if (ev.target && menu.contains(ev.target)) return;
+          closeDDMenu();
+        }, true);
+        window.addEventListener('resize', closeDDMenu);
       }
 
       function showConfirm(title, text, onOk) {
@@ -957,13 +1062,7 @@ function renderAppPage(params) {
         overlay.onclick = (ev) => { if (ev.target === overlay) close(); };
       }
 
-      async function askDeleteNome(btn) {
-        const wrap = btn.closest('.sel-wrap');
-        const type = wrap.dataset.nomeType;
-        const sel = wrap.querySelector('.sel-nome');
-        const nome = sel.value;
-        if (!nome || nome === '__novo__') return;
-
+      async function askDeleteNome(type, nome) {
         const col = type === 'gestor' ? 'gestor' : 'supervisor';
         const usedSaved = (state.accounts || []).filter(a => String(a[col] || '') === nome).length;
         let usedOnScreen = 0;
@@ -971,8 +1070,8 @@ function renderAppPage(params) {
           if (nomeValue(rowEl, type) === nome) usedOnScreen++;
         });
         const used = Math.max(usedSaved, usedOnScreen);
-
         const label = nomeLabel(type);
+
         showConfirm(
           'Excluir ' + label,
           'Excluir "' + nome + '" da lista de ' + label + 's? ' +
@@ -1099,8 +1198,8 @@ function renderAppPage(params) {
             + (row.fromSaved ? '<span class="acc-flag saved">Salva (fora da API)</span>' : '')
             + '</div></div>'
             + '<div class="f-wrap"><input class="acc-input f-cliente" placeholder="Cliente" value="' + esc(clienteVal) + '"></div>'
-            + '<div class="f-wrap"><div class="sel-wrap" data-nome-type="gestor" data-prev-value="' + esc(gestorVal) + '"><select class="acc-input sel-nome f-gestor">' + nomeOptionsHtml('gestor', gestorVal) + '</select><button class="del-nome" type="button" title="Excluir da lista">🗑</button></div></div>'
-            + '<div class="f-wrap"><div class="sel-wrap" data-nome-type="supervisor" data-prev-value="' + esc(supervisorVal) + '"><select class="acc-input sel-nome f-supervisor">' + nomeOptionsHtml('supervisor', supervisorVal) + '</select><button class="del-nome" type="button" title="Excluir da lista">🗑</button></div></div>'
+            + '<div class="f-wrap"><div class="ddwrap f-gestor" data-nome-type="gestor" data-value="' + esc(gestorVal) + '"><button class="ddbox" type="button"><span class="dd-label' + (gestorVal ? '' : ' vazio') + '">' + esc(gestorVal || '—') + '</span><span class="dd-caret">▾</span></button></div></div>'
+            + '<div class="f-wrap"><div class="ddwrap f-supervisor" data-nome-type="supervisor" data-value="' + esc(supervisorVal) + '"><button class="ddbox" type="button"><span class="dd-label' + (supervisorVal ? '' : ' vazio') + '">' + esc(supervisorVal || '—') + '</span><span class="dd-caret">▾</span></button></div></div>'
             + '</div>';
         }
         html += '</div>';
@@ -1119,17 +1218,13 @@ function renderAppPage(params) {
           rowEl.querySelectorAll('input.acc-input').forEach(input => {
             input.addEventListener('input', () => { scheduleAutoSave(1600); });
           });
-          rowEl.querySelectorAll('.sel-nome').forEach(sel => {
-            updateDelVisibility(sel);
-            sel.addEventListener('change', () => {
-              if (sel.value === '__novo__') { startNovoNome(sel); return; }
-              sel.closest('.sel-wrap').dataset.prevValue = sel.value;
-              updateDelVisibility(sel);
-              scheduleAutoSave(700);
+          rowEl.querySelectorAll('.ddwrap .ddbox').forEach(btn => {
+            btn.addEventListener('click', (ev) => {
+              ev.stopPropagation();
+              const wrap = btn.closest('.ddwrap');
+              if (ddTarget === wrap) { closeDDMenu(); return; }
+              openDDMenu(wrap);
             });
-          });
-          rowEl.querySelectorAll('.del-nome').forEach(btn => {
-            btn.addEventListener('click', () => askDeleteNome(btn));
           });
         });
 
@@ -1139,20 +1234,10 @@ function renderAppPage(params) {
             if (!pe) return;
             rowEl.querySelector('.acc-check').checked = pe.checked;
             rowEl.querySelector('.f-cliente').value = pe.cliente;
-            const gSel = rowEl.querySelector('.f-gestor');
-            if (gSel) {
-              gSel.innerHTML = nomeOptionsHtml('gestor', pe.gestor || '');
-              gSel.value = pe.gestor || '';
-              gSel.closest('.sel-wrap').dataset.prevValue = pe.gestor || '';
-              updateDelVisibility(gSel);
-            }
-            const sSel = rowEl.querySelector('.f-supervisor');
-            if (sSel) {
-              sSel.innerHTML = nomeOptionsHtml('supervisor', pe.supervisor || '');
-              sSel.value = pe.supervisor || '';
-              sSel.closest('.sel-wrap').dataset.prevValue = pe.supervisor || '';
-              updateDelVisibility(sSel);
-            }
+            const gWrap = rowEl.querySelector('.f-gestor');
+            if (gWrap) setDDValue(gWrap, pe.gestor || '');
+            const sWrap = rowEl.querySelector('.f-supervisor');
+            if (sWrap) setDDValue(sWrap, pe.supervisor || '');
             rowEl.classList.toggle('unchecked', !pe.checked);
           });
         }
@@ -1278,6 +1363,7 @@ function renderAppPage(params) {
       }
 
       $('btn-discover').onclick = () => discover(false);
+      initDDEvents();
       $('platform-filter').querySelectorAll('.chip').forEach(chip => {
         chip.addEventListener('click', () => {
           platformFilter = chip.dataset.filter;
