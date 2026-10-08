@@ -69,8 +69,9 @@ function getQueryValues(req, key) {
 }
 
 /**
- * MCCs conhecidos: query (?mcc=), env (MCC_ID/MCC_FALLBACK_*), contas salvas
- * na accounts_config e aba CONFIGS legada (se ainda existir na planilha).
+ * MCCs conhecidos: query (?mcc=), env (MCC_ID/MCC_FALLBACK_*) e contas salvas
+ * na accounts_config. (Os gerenciadores com acesso direto ao token são
+ * adicionados automaticamente depois, no passo da hierarquia.)
  */
 async function collectKnownMccIds(req) {
   const set = new Set();
@@ -95,32 +96,6 @@ async function collectKnownMccIds(req) {
     }
   } catch (e) {
     console.warn('[accounts/discover] falha ao ler accounts_config para MCCs:', e && e.message);
-  }
-
-  try {
-    if (process.env.SPREADSHEET_ID) {
-      const { getSheets } = require('../../src/services/sheets');
-      const sheets = await getSheets();
-      const res = await sheets.spreadsheets.values.get({
-        spreadsheetId: process.env.SPREADSHEET_ID,
-        range: 'CONFIGS!A1:Z5000'
-      });
-      const values = res.data.values || [];
-      const headerRow = values[0] || [];
-      const headerMap = new Map(headerRow.map((h, i) => [String(h || '').trim().toLowerCase(), i]));
-      const idxMcc = ['logincustomerid', 'login customer id', 'mcc', 'mcc_id', 'login mcc']
-        .map(n => headerMap.get(n))
-        .find(v => v !== undefined);
-      if (idxMcc !== undefined) {
-        for (let i = 1; i < values.length; i++) {
-          const id = normalizeTenDigits(values[i] && values[i][idxMcc]);
-          if (id) set.add(id);
-        }
-      }
-    }
-  } catch (e) {
-    // Aba CONFIGS pode não existir mais — é só uma fonte extra de MCCs.
-    console.warn('[accounts/discover] aba CONFIGS indisponível para MCCs (ignorado):', e && e.message);
   }
 
   return Array.from(set);

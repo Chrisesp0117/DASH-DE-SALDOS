@@ -1,11 +1,10 @@
 require('dotenv').config({ path: '.env' });
 
-const { getSheets } = require('./services/sheets');
 const { getGoogleData } = require('./services/googleAds');
 const { getMetaData } = require('./services/meta');
 const { buildRow } = require('./core/calculator');
 const { upsertDatabaseRows, clearDatabase } = require('./services/supabase');
-const { loadClientesFromDatabase } = require('./services/accountsConfig');
+const { loadClientesFromDatabase, CONFIG_HEADER } = require('./services/accountsConfig');
 const { getGoogleRefreshToken, getMetaAccessToken } = require('./services/connections');
 const {
   readJobState,
@@ -51,11 +50,10 @@ async function updateWelcomeStatus() {
 }
 
 /**
- * Carrega a lista de contas a processar.
- *  1. accounts_config (Supabase) — configurada pela página web /api/settings-ui
- *  2. Fallback: aba CONFIGS da planilha (legado, transição)
+ * Carrega a lista de contas a processar — única fonte: accounts_config
+ * (Supabase), configurada pela página web (/api/update-now#configuracoes).
  * Retorna { headerRow, configRows, source } no formato posicional esperado
- * pelo parser de índices abaixo (header idêntico ao da CONFIGS).
+ * pelo parser de índices abaixo (header idêntico ao da antiga CONFIGS).
  */
 async function loadClientes() {
   try {
@@ -64,18 +62,12 @@ async function loadClientes() {
       console.log('[run-init] Fonte das contas: accounts_config (Supabase) — ' + fromDb.configRows.length + ' linha(s)');
       return fromDb;
     }
-    console.warn('[loadClientes] accounts_config vazia — usando aba CONFIGS da planilha (legado). Configure as contas em /api/settings-ui para migrar.');
+    console.warn('[loadClientes] accounts_config vazia — nenhuma conta configurada. Configure em /api/update-now?secret=...#configuracoes');
+    return { headerRow: CONFIG_HEADER, configRows: [], source: 'supabase' };
   } catch (e) {
-    console.warn('[loadClientes] accounts_config indisponível (' + (e && e.message || e) + ') — usando aba CONFIGS da planilha (legado).');
+    console.error('[loadClientes] Falha ao ler accounts_config:', (e && e.message) || e);
+    throw e;
   }
-
-  const sheets = await getSheets();
-  const clientesRes = await sheets.spreadsheets.values.get({
-    spreadsheetId: process.env.SPREADSHEET_ID,
-    range: 'CONFIGS!A1:Z5000'
-  });
-  const values = clientesRes.data.values || [];
-  return { headerRow: values[0] || [], configRows: values.slice(1), source: 'sheet' };
 }
 
 async function readJobCursor() {

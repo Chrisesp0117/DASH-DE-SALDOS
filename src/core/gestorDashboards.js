@@ -88,7 +88,7 @@ async function getSheetMeta(sheets, spreadsheetId) {
 }
 
 async function listGestoresAtivos(sheets, spreadsheetId) {
-  // 1) accounts_config (Supabase) — fonte configurada pela página web
+  // Fonte única: accounts_config (Supabase), configurada pela página web.
   try {
     const rows = await listAccounts();
     const gestores = new Set();
@@ -100,37 +100,7 @@ async function listGestoresAtivos(sheets, spreadsheetId) {
     }
     return Array.from(gestores);
   } catch (error) {
-    console.warn('listGestoresAtivos: accounts_config indisponível (' + (error && error.message || error) + ') — tentando aba CONFIGS');
-  }
-
-  // 2) Fallback legado: aba CONFIGS da planilha
-  try {
-    const clientesRes = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: 'CONFIGS!A1:Z'
-    });
-
-    const values = clientesRes.data.values || [];
-    const headers = values[0] || [];
-    const gestorIndex = headers.findIndex(h => String(h || '').trim().toLowerCase() === 'gestor');
-
-    if (gestorIndex < 0) {
-      console.warn('Coluna Gestor não encontrada na aba CONFIGS.');
-      return [];
-    }
-
-    const gestores = new Set();
-    for (let i = 1; i < values.length; i++) {
-      const row = values[i] || [];
-      const gestor = String(row[gestorIndex] || '').trim();
-      if (gestor) {
-        gestores.add(gestor);
-      }
-    }
-
-    return Array.from(gestores);
-  } catch (error) {
-    console.error('Erro ao listar gestores ativos:', error.message || error);
+    console.error('Erro ao listar gestores ativos (accounts_config):', error.message || error);
     return [];
   }
 }

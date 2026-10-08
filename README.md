@@ -17,7 +17,7 @@ Executar atualizações e relatórios sem processo contínuo, usando:
 
 ### 0) Página web única (atualizações + configurações)
 
-A aba **CONFIGS** deixou de ser o painel de configuração. Agora tudo é gerenciado em uma única página:
+A configuração agora é **100% pela página web** — a aba CONFIGS da planilha não é mais usada pelo sistema. Tudo é gerenciado em uma única página:
 
 `https://<seu-dominio>.vercel.app/api/update-now?secret=<CRON_SECRET>#configuracoes`
 
@@ -26,15 +26,16 @@ A página tem duas abas:
 - **Atualizações** — monitor de fila (progresso, pipeline, log)
 - **Configurações** — seleção das contas de anúncio:
   1. A lista de contas **carrega automaticamente** ao abrir a aba, com TODAS as contas vinculadas aos tokens do ambiente — `REFRESH_TOKEN` (Google Ads: acesso direto + hierarquia dos gerenciadores) e `META_TOKEN` (Meta Ads: `/me/adaccounts`)
-  2. Cada conta tem um **ícone** (Google/Meta) e um **check** — marque as que devem entrar na planilha, preencha gestor/supervisor e salve. Filtro por plataforma (Todas/Google/Meta) e por nome
-  3. O **MCC/Login é detectado automaticamente** pela hierarquia do gerenciador (não precisa configurar) e a revisão foi removida: conta marcada = entra na planilha
-  4. (Transição) **Importa a aba CONFIGS** com um clique, preservando gestores/supervisores
+  2. Cada conta tem um **ícone** (Google/Meta) e um **check** — marque as que devem entrar na planilha e preencha gestor/supervisor. Alterações são **salvas automaticamente**. Filtro por plataforma (Todas/Google/Meta) e por nome
+  3. O **MCC/Login é detectado automaticamente** pela hierarquia do gerenciador (não precisa configurar)
 
-As escolhas ficam na tabela `accounts_config` (Supabase). A aba CONFIGS da planilha continua como **fallback** enquanto `accounts_config` estiver vazia.
+As escolhas ficam na tabela `accounts_config` (Supabase) — fonte única do job.
+
+> **Aba CONFIGS da planilha:** pode ser esvaziada. Se quiser, deixe nela apenas um botão que abre a página de configurações: *Inserir → Desenho* → crie um botão → nos 3 pontinhos do desenho → **Atribuir script** → `abrirConfiguracoesWeb`.
 
 ### 1) Atualização da planilha
 
-O job principal lê as contas da tabela **`accounts_config`** (Supabase; fallback: aba CONFIGS), consulta as APIs externas e escreve o resultado no Supabase (tabela `database_rows`). O progresso entre invocações fica em `job_state` no Supabase (cursor e lease). Em seguida gera as abas **SUPERVISOR** e **DASH-{Gestor}** na planilha.
+O job principal lê as contas da tabela **`accounts_config`** (Supabase), consulta as APIs externas e escreve o resultado no Supabase (tabela `database_rows`). O progresso entre invocações fica em `job_state` no Supabase (cursor e lease). Em seguida gera as abas **SUPERVISOR** e **DASH-{Gestor}** na planilha.
 
 ### 2) Relatórios automáticos
 
@@ -78,7 +79,6 @@ A arquitetura **desacopla disparo de execução** via uma fila de jobs no Supaba
 | `/api/settings-ui` | Redirect para a página única, aba Configurações (compatibilidade). |
 | `/api/settings` | JSON: presença dos tokens + contas salvas. |
 | `/api/settings/accounts` | GET: contas salvas · POST: substitui a lista de contas. |
-| `/api/settings/import-configs` | POST: importa (uma última vez) a aba CONFIGS para o banco. |
 | `/api/accounts/discover` | GET: lista contas Google Ads + Meta vinculadas aos tokens do ambiente. |
 | `/api/cron/enqueue` | Enfileira um job (202 Accepted). Aceita `batchSize`, `reset=1`, `databaseOnly=1`, `triggered_by`. |
 | `/api/cron/advance-queue` | Worker: pega próximo `pending`, processa, re-enfileira ou completa. |
@@ -113,7 +113,7 @@ Query opcionais no POST (mesma URL): `batchSize`, `force=1` (ignora checagem de 
 
 ## Estrutura do projeto
 
-- `src/run.js` — job principal: lê `accounts_config` (fallback CONFIGS), escreve métricas no Supabase e estado `job_state` no Supabase
+- `src/run.js` — job principal: lê `accounts_config` (Supabase), escreve métricas no Supabase e estado `job_state` no Supabase
 - `src/core/calculator.js` — cálculos e normalização de métricas
 - `src/core/reportGenerator.js` — geração do relatório (lê DATABASE do Supabase)
 - `src/core/serverlessJobs.js` — jobs serverless, auth de cron, `runQueuedUpdateJob`
@@ -123,10 +123,10 @@ Query opcionais no POST (mesma URL): `batchSize`, `force=1` (ignora checagem de 
 - `src/services/supabase.js` — cliente Supabase + helpers de DATABASE
 - `src/services/jobQueue.js` — helpers da fila `job_queue`
 - `src/services/connections.js` — tokens das variáveis de ambiente (REFRESH_TOKEN / META_TOKEN)
-- `src/services/accountsConfig.js` — contas selecionadas na web (`accounts_config`) + importação da CONFIGS
+- `src/services/accountsConfig.js` — contas selecionadas na web (`accounts_config`, fonte única)
 - `src/services/googleAds.js` — Google Ads
 - `src/services/meta.js` — Meta Ads
-- `src/services/sheets.js` — Google Sheets (planilha destino + CONFIGS legado)
+- `src/services/sheets.js` — Google Sheets (apenas escrita visual: SUPERVISOR + DASH-{Gestor})
 - `api/app-ui.js` — página web única (abas: monitor de atualizações + configuração/seleção de contas)
 - `api/settings-ui.js` — redirect de compatibilidade para a aba de configurações
 - `appscript/` — Apps Script da planilha (Config.gs, Menu.gs, Cron.gs)
@@ -175,7 +175,7 @@ CRON_SECRET=segredo_compartilhado_para_cron
 
 1. Rode o SQL em `supabase_schema.sql` no Supabase.
 2. Configure as variáveis de ambiente na Vercel (tokens de Google Ads e Meta Ads).
-3. Abra `/api/update-now?secret=<CRON_SECRET>#configuracoes` → a lista de contas carrega sozinha → marque as que vão para a planilha (ou importe a CONFIGS) → salve.
+3. Abra `/api/update-now?secret=<CRON_SECRET>#configuracoes` → a lista de contas carrega sozinha → marque as que vão para a planilha (salva automático).
 4. Configure o acionador do Apps Script `avancarFilaAutomaticamente` a cada 1 minuto (worker).
 5. (Opcional) Configure um acionador para `enfileirarAtualizacaoAutomatica` a cada 2 horas (enfileirador).
 6. Agende `api/report` conforme desejado (por exemplo 8h e 17h locais).

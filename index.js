@@ -79,10 +79,6 @@ module.exports = async (req, res) => {
     return require('./api/settings/accounts')(req, res);
   }
 
-  if (path === '/api/settings/import-configs') {
-    return require('./api/settings/import-configs')(req, res);
-  }
-
   if (path === '/api/accounts/discover') {
     return require('./api/accounts/discover')(req, res);
   }

@@ -137,7 +137,8 @@ async function saveAccounts(accounts) {
 
 /**
  * Carrega as contas no formato que o run.js espera:
- * { headerRow, configRows } — arrays posicionais idênticos à aba CONFIGS.
+ * { headerRow, configRows } — arrays posicionais no mesmo layout que a
+ * antiga aba CONFIGS usava (o parser de índices do run.js não muda).
  */
 async function loadClientesFromDatabase() {
   const rows = await listAccounts();
@@ -151,83 +152,12 @@ async function loadClientesFromDatabase() {
   };
 }
 
-/**
- * Importa (uma última vez) a aba CONFIGS da planilha para a accounts_config.
- * Preserva gestor, supervisor e revisão já preenchidos manualmente.
- */
-async function importFromConfigsSheet(sheets, spreadsheetId) {
-  const clientesRes = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: 'CONFIGS!A1:Z5000'
-  });
-
-  const values = clientesRes.data.values || [];
-  const headerRow = values[0] || [];
-  const configRows = values.slice(1);
-
-  const headerMap = new Map(
-    headerRow.map((header, index) => [String(header || '').trim().toLowerCase(), index])
-  );
-  const getIndexAny = (names, fallback) => {
-    for (const name of names) {
-      const index = headerMap.get(String(name || '').trim().toLowerCase());
-      if (index !== undefined) return index;
-    }
-    return fallback;
-  };
-
-  const idxCliente = getIndexAny(['Cliente', 'Client'], 0);
-  const idxPlataforma = getIndexAny(['Plataforma', 'Platform'], 1);
-  const idxCustomerId = getIndexAny(['CustomerID', 'Customer ID', 'Customer Id', 'GoogleCustomerId', 'Google Customer ID', 'Google Customer Id'], 2);
-  const idxGestor = getIndexAny(['Gestor', 'Manager'], 3);
-  const idxRevisao = getIndexAny(['Revisão', 'Revisao', 'Review'], 4);
-  const idxSupervisor = getIndexAny(['Supervisor', 'Supervisão', 'Supervisao'], -1);
-  const idxLoginCustomerId = getIndexAny(['LoginCustomerId', 'Login Customer ID', 'MCC', 'MCC_ID', 'Login MCC'], -1);
-
-  const accounts = [];
-  for (const row of configRows) {
-    const cliente = String(row[idxCliente] || '').trim();
-    if (!cliente) continue; // linhas residuais sem nome de cliente
-    const plataforma = String(row[idxPlataforma] || '').trim().toUpperCase();
-    const customerId = String(row[idxCustomerId] || '').replace(/\D/g, '');
-    if (!cliente || !plataforma || !customerId) continue;
-    if (plataforma !== 'GOOGLE' && plataforma !== 'META') continue;
-    if (plataforma === 'GOOGLE' && !/^\d{10}$/.test(customerId)) continue;
-
-    const revisaoRaw = String(idxRevisao >= 0 ? (row[idxRevisao] || '') : '').trim();
-    // O conceito de revisão foi removido da página web: toda conta importada
-    // entra como 'ok' — o check na página controla o que processa.
-    accounts.push({
-      cliente,
-      plataforma,
-      customer_id: customerId,
-      gestor: String(row[idxGestor] || '').trim(),
-      supervisor: idxSupervisor >= 0 ? String(row[idxSupervisor] || '').trim() : '',
-      revisao: 'ok',
-      login_customer_id: idxLoginCustomerId >= 0 ? String(row[idxLoginCustomerId] || '').replace(/\D/g, '') : ''
-    });
-  }
-
-  if (!accounts.length) {
-    return { imported: 0, message: 'Nenhuma conta válida encontrada na aba CONFIGS' };
-  }
-
-  const result = await saveAccounts(accounts);
-  return {
-    imported: result.saved,
-    duplicates: result.duplicates,
-    byPlataforma: result.byPlataforma,
-    message: `Importadas ${result.saved} conta(s) da aba CONFIGS (${result.byPlataforma.GOOGLE} Google, ${result.byPlataforma.META} Meta)`
-  };
-}
-
 module.exports = {
   ACCOUNTS_TABLE,
   CONFIG_HEADER,
   listAccounts,
   saveAccounts,
   loadClientesFromDatabase,
-  importFromConfigsSheet,
   normalizeAccountInput,
   toPositionalRow
 };

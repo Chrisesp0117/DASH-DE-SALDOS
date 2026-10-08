@@ -252,7 +252,7 @@ async function generateReport(sheets, spreadsheetId) {
 
     const okCount = updated.filter(i => i.cls === 'ok').length;
     msg += `\n<i>✅ ${okCount} conta(s) em situação normal</i>\n`;
-    msg += `<i>Dados ordenados conforme CONFIGS</i>\n`;
+    msg += `<i>Dados ordenados conforme configurado na web</i>\n`;
 
     return msg;
   } catch (err) {

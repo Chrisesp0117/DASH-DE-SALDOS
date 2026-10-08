@@ -86,8 +86,8 @@ async function printAccountsConfig() {
     const meta = accounts.filter(a => a.plataforma === 'META').length;
     console.log(`\nContas configuradas (accounts_config): ${accounts.length} (${google} Google, ${meta} Meta)`);
     if (!accounts.length) {
-      console.warn('  ⚠️ Nenhuma conta na accounts_config — o job usará a aba CONFIGS da planilha (fallback).');
-      console.warn('     Configure as contas em /api/settings-ui (ou importe a CONFIGS por lá).');
+      console.warn('  ⚠️ Nenhuma conta na accounts_config — nenhuma atualização terá dados.');
+      console.warn('     Configure as contas em /api/update-now?secret=<CRON_SECRET>#configuracoes');
     }
   } catch (e) {
     console.warn('Não foi possível ler a accounts_config:', e && e.message);

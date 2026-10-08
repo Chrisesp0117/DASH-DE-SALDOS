@@ -448,10 +448,6 @@ function renderAppPage(params) {
             <span class="spinner light" id="discover-spinner"></span>
             <span id="discover-text">Buscar contas</span>
           </button>
-          <button id="btn-import" class="btn btn-secondary">
-            <span class="spinner light" id="import-spinner"></span>
-            <span id="import-text">Importar da planilha (CONFIGS)</span>
-          </button>
           <div class="spacer"></div>
           <div class="chip-group" id="platform-filter">
             <button class="chip active" data-filter="all">Todas</button>
@@ -1003,23 +999,6 @@ function renderAppPage(params) {
         }
       }
 
-      async function importConfigs() {
-        const btn = $('btn-import');
-        setBusy(btn, $('import-spinner'), true);
-        try {
-          const data = await apiPost('/api/settings/import-configs?secret=' + encodeURIComponent(secret), {});
-          toast(data.message || 'Importado da CONFIGS', 'success');
-          rows = [];
-          await loadState();
-          rowsFromSavedOnly();
-          renderRows();
-        } catch (e) {
-          toast('Falha ao importar: ' + e.message, 'error');
-        } finally {
-          setBusy(btn, $('import-spinner'), false);
-        }
-      }
-
       // ---------- AUTO-SAVE (sem botão) ----------
       let saveTimer = null;
       let saveSeq = 0;
@@ -1058,7 +1037,6 @@ function renderAppPage(params) {
       }
 
       $('btn-discover').onclick = () => discover(false);
-      $('btn-import').onclick = importConfigs;
       $('platform-filter').querySelectorAll('.chip').forEach(chip => {
         chip.addEventListener('click', () => {
           platformFilter = chip.dataset.filter;
