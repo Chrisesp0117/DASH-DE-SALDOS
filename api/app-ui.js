@@ -252,9 +252,7 @@ function renderAppPage(params) {
 
     /* CONEXÕES / FONTE DE DADOS */
     .conn { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 11px; margin-bottom: 10px; background: var(--card-2); }
-    .conn-logo { width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
-    .conn-logo.google { background: var(--google-soft); }
-    .conn-logo.meta { background: var(--meta-soft); }
+    .conn > svg { flex-shrink: 0; }
     .conn-name { font-size: 13px; font-weight: 600; }
     .conn-status { font-size: 11px; color: var(--muted); margin-top: 2px; }
     .conn-status.on { color: var(--success); }
@@ -294,9 +292,7 @@ function renderAppPage(params) {
     .acc-row.unchecked { opacity: 0.55; }
     .acc-check { width: 16px; height: 16px; accent-color: var(--primary); cursor: pointer; }
     .acc-identity { display: flex; align-items: center; gap: 8px; min-width: 0; }
-    .acc-icon { width: 18px; height: 18px; border-radius: 5px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-    .acc-icon.google { background: var(--google-soft); }
-    .acc-icon.meta { background: var(--meta-soft); }
+    .acc-identity > svg { flex-shrink: 0; margin-top: 2px; }
     .acc-name { font-size: 12px; font-weight: 600; line-height: 1.3; word-break: break-word; }
     .acc-id { font-size: 10px; color: var(--muted); margin-top: 1px; }
     .acc-flag { display: inline-block; margin-top: 3px; padding: 2px 7px; border-radius: 999px; font-size: 9px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
@@ -428,14 +424,14 @@ function renderAppPage(params) {
         <h2 class="section-title">Fonte de dados</h2>
         <p class="section-desc">As contas são buscadas com os tokens fixos das variáveis de ambiente: <b>REFRESH_TOKEN</b> (Google Ads) e <b>META_TOKEN</b> (Meta Ads).</p>
         <div class="conn">
-          <div class="conn-logo google">${ICON_GOOGLE}</div>
+          ${ICON_GOOGLE}
           <div>
             <div class="conn-name">Google Ads</div>
             <div class="conn-status" id="google-status">Carregando…</div>
           </div>
         </div>
         <div class="conn">
-          <div class="conn-logo meta">${ICON_META}</div>
+          ${ICON_META}
           <div>
             <div class="conn-name">Meta Ads</div>
             <div class="conn-status" id="meta-status">Carregando…</div>
@@ -471,10 +467,7 @@ function renderAppPage(params) {
 
         <div class="savebar" id="savebar" style="display:none">
           <div class="summary" id="save-summary">0 contas selecionadas</div>
-          <button id="btn-save" class="btn btn-primary">
-            <span class="spinner" id="save-spinner"></span>
-            <span id="save-text">Salvar contas selecionadas</span>
-          </button>
+          <div class="summary" id="save-status">Alterações são salvas automaticamente</div>
         </div>
       </div>
     </div>
@@ -886,11 +879,10 @@ function renderAppPage(params) {
           const e = row.existing || {};
           const clienteVal = e.cliente || row.name || row.idFormatted || row.id;
           const icon = row.platform === 'GOOGLE' ? ICON_GOOGLE : ICON_META;
-          const iconCls = row.platform === 'GOOGLE' ? 'google' : 'meta';
           html += '<div class="acc-row unchecked" data-idx="' + idx + '" data-platform="' + row.platform + '" data-id="' + esc(row.id) + '" data-search="' + esc(String(row.name || '') + ' ' + row.id).toLowerCase() + '">'
             + '<div><input type="checkbox" class="acc-check"></div>'
             + '<div class="acc-identity">'
-            + '<div class="acc-icon ' + iconCls + '">' + icon + '</div>'
+            + icon
             + '<div style="min-width:0"><div class="acc-name">' + esc(row.name || ('Conta ' + row.id)) + '</div>'
             + '<div class="acc-id">' + esc(row.idFormatted || row.id) + (row.currency ? ' · ' + esc(row.currency) : '') + '</div>'
             + (row.manager ? '<span class="acc-flag manager">Manager / MCC</span>' : '')
@@ -913,6 +905,10 @@ function renderAppPage(params) {
           cb.addEventListener('change', () => {
             rowEl.classList.toggle('unchecked', !cb.checked);
             updateSummary();
+            scheduleAutoSave(700);
+          });
+          rowEl.querySelectorAll('.acc-input').forEach(input => {
+            input.addEventListener('input', () => { scheduleAutoSave(1600); });
           });
         });
 
@@ -1024,36 +1020,45 @@ function renderAppPage(params) {
         }
       }
 
-      async function save() {
+      // ---------- AUTO-SAVE (sem botão) ----------
+      let saveTimer = null;
+      let saveSeq = 0;
+
+      function setSaveStatus(text, cls) {
+        const el = $('save-status');
+        el.textContent = text;
+        el.style.color = cls === 'error' ? 'var(--error)' : (cls === 'saving' ? 'var(--primary)' : 'var(--muted)');
+      }
+
+      function scheduleAutoSave(delayMs) {
+        if (saveTimer) clearTimeout(saveTimer);
+        setSaveStatus('Salvando…', 'saving');
+        saveTimer = setTimeout(() => {
+          saveTimer = null;
+          performAutoSave();
+        }, Math.max(300, delayMs || 1000));
+      }
+
+      async function performAutoSave() {
+        const seq = ++saveSeq;
         const selected = collectSelected();
-        if (!selected.length) {
-          toast('Selecione pelo menos uma conta', 'warn');
-          return;
-        }
-        const btn = $('btn-save');
-        setBusy(btn, $('save-spinner'), true);
         try {
-          const data = await apiPost('/api/settings/accounts?secret=' + encodeURIComponent(secret), { accounts: selected });
-          toast(data.saved + ' conta(s) salva(s) — aparecerão na planilha na próxima atualização', 'success');
+          await apiPost('/api/settings/accounts?secret=' + encodeURIComponent(secret), { accounts: selected });
+          if (seq !== saveSeq) return; // houve nova edição durante o save; o próximo save cobre
+          const now = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+          setSaveStatus('✓ Salvo automaticamente às ' + now);
           await loadState();
-          if (rows.length) {
-            const saved = savedByKey();
-            rows.forEach(r => { r.existing = saved.get(r.platform + '|' + r.id) || null; });
-            renderRows(collectEdits());
-          } else {
-            rowsFromSavedOnly();
-            renderRows();
-          }
+          const saved = savedByKey();
+          rows.forEach(r => { r.existing = saved.get(r.platform + '|' + r.id) || null; });
+          updateSummary();
         } catch (e) {
+          if (seq === saveSeq) setSaveStatus('Erro ao salvar — tente editar de novo', 'error');
           toast('Falha ao salvar: ' + e.message, 'error');
-        } finally {
-          setBusy(btn, $('save-spinner'), false);
         }
       }
 
       $('btn-discover').onclick = () => discover(false);
       $('btn-import').onclick = importConfigs;
-      $('btn-save').onclick = save;
       $('platform-filter').querySelectorAll('.chip').forEach(chip => {
         chip.addEventListener('click', () => {
           platformFilter = chip.dataset.filter;
