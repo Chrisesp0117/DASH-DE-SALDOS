@@ -1,20 +1,24 @@
 /**
- * Menu.gs — menu da planilha + interface manual FINANCE DASH
+ * Menu.gs — menu da planilha FINANCE DASH
  *
  * Cria no menu da planilha:
  *   FINANCE DASH
- *     ├─ Abrir painel manual (legado)
- *     ├─ Enfileirar atualização completa   ← novo (fila)
- *     ├─ Enfileirar só DATABASE             ← novo (fila, databaseOnly)
- *     ├─ Enfileirar com reset de cursor     ← novo (fila, reset=1)
+ *     ├─ Abrir painel web (atualizações)   ← abre NOVA GUIA do navegador
+ *     ├─ Abrir configurações (contas)     ← abre NOVA GUIA (aba Configurações)
+ *     ├─ Enfileirar atualização completa
+ *     ├─ Enfileirar só DATABASE
+ *     ├─ Enfileirar com reset de cursor
  *     └─ Ver status do job
+ *
+ * A função abrirConfiguracoesWeb também pode ser atribuída a um botão
+ * desenhado na aba CONFIGS (Atribuir script → abrirConfiguracoesWeb).
  */
 
 
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('FINANCE DASH')
-    .addItem('Abrir painel web (atualizações)', 'abrirLinkPopUp')
+    .addItem('Abrir painel web (atualizações)', 'abrirPainelWeb')
     .addSeparator()
     .addItem('Abrir configurações (contas de anúncio)', 'abrirConfiguracoesWeb')
     .addItem('Enfileirar atualização completa', 'menuEnfileirarCompleta')
@@ -26,75 +30,46 @@ function onOpen() {
 }
 
 /**
- * Abre a página web de configurações (conexões Google/Meta e contas de anúncio).
+ * Abre uma URL em uma NOVA GUIA da janela atual do navegador.
+ * (O mini-modal é só o trampolim do Apps Script — fecha sozinho em seguida.)
  */
-function abrirConfiguracoesWeb() {
-  const url = getSettingsUiUrl_();
+function abrirNovaGuia_(url) {
   const htmlContent = `
     <html>
       <head>
         <script>
-          function abrirJanela() {
-            window.open('${url}', 'FINANCE DASH CONFIG',
-              'width=' + Math.min(1100, screen.width - 80) + ', height=' + (screen.height - 120) +
-              ', top=' + (screen.height / 14) + ', left=' + ((screen.width - 1100) / 2) +
-              ', scrollbars=yes, resizable=yes');
-            setTimeout(function() {
-              google.script.host.close();
-            }, 1000);
+          function abrirNovaGuia() {
+            window.open('${url}', '_blank');
+            google.script.host.close();
           }
         </script>
       </head>
-      <body onload="abrirJanela()" style="font-family: sans-serif; text-align: center; padding-top: 20px;">
-        <p>Abrindo configurações web...</p>
-        <button onclick="abrirJanela()">Clique aqui se não abrir</button>
+      <body onload="abrirNovaGuia()" style="font-family: sans-serif; text-align: center; padding-top: 20px;">
+        <p>Abrindo FINANCE DASH...</p>
+        <a href="${url}" target="_blank">Clique aqui se não abrir</a>
       </body>
     </html>
   `;
 
   SpreadsheetApp.getUi().showModalDialog(
-    HtmlService.createHtmlOutput(htmlContent).setWidth(420).setHeight(160),
-    'FINANCE DASH — Configurações'
+    HtmlService.createHtmlOutput(htmlContent).setWidth(380).setHeight(130),
+    'Abrindo...'
   );
 }
 
 /**
- * Painel manual legado (abre /api/update-now no popup).
+ * Abre a página única (aba Atualizações) em uma nova guia do navegador.
  */
-function abrirLinkPopUp() {
-  const url = getUpdateNowUrl_();
-  const htmlContent = `
-    <html>
-      <head>
-        <script>
-          function abrirJanela() {
-            var largura = 680;
-            var altura = 720;
-            var esquerda = (screen.width - largura) / 2;
-            var topo = (screen.height - altura) / 2;
+function abrirPainelWeb() {
+  abrirNovaGuia_(getUpdateNowUrl_());
+}
 
-            window.open('${url}', 'FINANCE DASH',
-              'width=' + largura + ', height=' + altura +
-              ', top=' + topo + ', left=' + esquerda +
-              ', scrollbars=yes, resizable=yes');
-
-            setTimeout(function() {
-              google.script.host.close();
-            }, 1000);
-          }
-        </script>
-      </head>
-      <body onload="abrirJanela()" style="font-family: sans-serif; text-align: center; padding-top: 20px;">
-        <p>Abrindo FINANCE DASH...</p>
-        <button onclick="abrirJanela()">Clique aqui se não abrir</button>
-      </body>
-    </html>
-  `;
-
-  SpreadsheetApp.getUi().showModalDialog(
-    HtmlService.createHtmlOutput(htmlContent).setWidth(380).setHeight(160),
-    'FINANCE DASH'
-  );
+/**
+ * Abre a página única na aba de Configurações, em uma nova guia do navegador.
+ * (Atribua este script ao botão da aba CONFIGS.)
+ */
+function abrirConfiguracoesWeb() {
+  abrirNovaGuia_(getSettingsUiUrl_());
 }
 
 function menuEnfileirarCompleta() {
