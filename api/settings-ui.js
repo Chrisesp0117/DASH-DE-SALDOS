@@ -754,11 +754,12 @@ function renderSettingsPage(params) {
       if (urlParams.get('error')) {
         const msgs = {
           unauthorized: 'Sessão inválida (state). Tente conectar de novo.',
-          missing_code: 'O Google/Meta não devolveu o código de autorização.',
+          missing_code: 'O login não foi concluído (sem código de autorização). Tente de novo.',
+          access_denied: 'Conexão cancelada — é preciso aceitar as permissões na tela do Google/Facebook.',
           google_connect_failed: 'Falha ao conectar o Google: ' + (urlParams.get('detail') || ''),
           meta_connect_failed: 'Falha ao conectar o Meta: ' + (urlParams.get('detail') || '')
         };
-        toast(msgs[urlParams.get('error')] || ('Erro: ' + urlParams.get('error')), 'error');
+        toast(msgs[urlParams.get('error')] || ('Erro: ' + urlParams.get('error') + (urlParams.get('detail') ? ' — ' + urlParams.get('detail') : '')), 'error');
       }
 
       $('monitor-link').href = '/api/update-now?secret=' + encodeURIComponent(secret);

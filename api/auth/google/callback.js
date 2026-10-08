@@ -39,10 +39,19 @@ function settingsUrl(params) {
 module.exports = async (req, res) => {
   const code = getQueryValue(req, 'code');
   const state = getQueryValue(req, 'state');
+  const oauthError = getQueryValue(req, 'error');
   const expectedState = String(process.env.CRON_SECRET || '');
 
   if (!expectedState || state !== expectedState) {
     return sendRedirect(res, settingsUrl({ error: 'unauthorized' }));
+  }
+  // Google redireciona com ?error=access_denied quando o usuário cancela o consentimento.
+  if (oauthError) {
+    console.warn('[google/callback] oauth error=' + oauthError);
+    return sendRedirect(res, settingsUrl({
+      error: oauthError === 'access_denied' ? 'access_denied' : 'google_connect_failed',
+      detail: oauthError
+    }));
   }
   if (!code) {
     return sendRedirect(res, settingsUrl({ error: 'missing_code' }));

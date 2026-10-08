@@ -42,10 +42,20 @@ function settingsUrl(params) {
 module.exports = async (req, res) => {
   const code = getQueryValue(req, 'code');
   const state = getQueryValue(req, 'state');
+  const oauthError = getQueryValue(req, 'error');
+  const oauthErrorDescription = getQueryValue(req, 'error_description');
   const expectedState = String(process.env.CRON_SECRET || '');
 
   if (!expectedState || state !== expectedState) {
     return sendRedirect(res, settingsUrl({ error: 'unauthorized' }));
+  }
+  // Meta redireciona com ?error=... quando o usuário cancela ou algo falha no consentimento.
+  if (oauthError) {
+    console.warn('[meta/callback] oauth error=' + oauthError + ' description=' + oauthErrorDescription);
+    return sendRedirect(res, settingsUrl({
+      error: oauthError === 'access_denied' ? 'access_denied' : 'meta_connect_failed',
+      detail: (oauthErrorDescription || '').slice(0, 200) || oauthError
+    }));
   }
   if (!code) {
     return sendRedirect(res, settingsUrl({ error: 'missing_code' }));
@@ -62,7 +72,13 @@ module.exports = async (req, res) => {
     const longTokens = await exchangeMetaLongLived(shortToken);
     const longToken = longTokens.access_token || shortToken;
 
-    const user = await getMetaUser(longToken);
+    // Identificação do usuário é não-fatal: o token válido já é suficiente.
+    let user = { id: '', name: '' };
+    try {
+      user = await getMetaUser(longToken);
+    } catch (e) {
+      console.warn('[meta/callback] não foi possível identificar o usuário (não fatal):', e && e.message);
+    }
 
     await upsertConnection('meta', {
       access_token: longToken,
