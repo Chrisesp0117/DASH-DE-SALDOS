@@ -23,10 +23,9 @@ A aba **CONFIGS** deixou de ser o painel de configuração. Agora as contas são
 
 Por lá você:
 
-1. **Conecta sua conta Google** (OAuth → Google Ads) e sua **conta Meta** (OAuth → Marketing API). Os tokens ficam salvos no Supabase (`app_connections`) e substituem `REFRESH_TOKEN`/`META_TOKEN` do `.env`.
-2. **Busca as contas de anúncio** vinculadas aos perfis conectados (Google Ads `listAccessibleCustomers` + Meta `/me/adaccounts`).
-3. **Seleciona quais contas entram na planilha** e preenche por conta: cliente, gestor, supervisor, MCC/Login (Google) e revisão. As escolhas ficam na tabela `accounts_config`.
-4. (Transição) **Importa a aba CONFIGS** com um clique, preservando gestores/supervisores/revisões já preenchidos.
+1. **Busca as contas de anúncio** vinculadas aos tokens das variáveis de ambiente — `REFRESH_TOKEN` (Google Ads: `listAccessibleCustomers`) e `META_TOKEN` (Meta Ads: `/me/adaccounts`). Não há conexão de perfil/OAuth: toda conta acessível por esses tokens aparece na lista.
+2. **Seleciona quais contas entram na planilha** e preenche por conta: cliente, gestor, supervisor, MCC/Login (Google) e revisão. As escolhas ficam na tabela `accounts_config`.
+3. (Transição) **Importa a aba CONFIGS** com um clique, preservando gestores/supervisores/revisões já preenchidos.
 
 A aba CONFIGS da planilha continua funcionando como **fallback** enquanto `accounts_config` estiver vazia — depois de importar/configurar pela web, a aba pode ser aposentada.
 
@@ -72,14 +71,11 @@ A arquitetura **desacopla disparo de execução** via uma fila de jobs no Supaba
 
 | Caminho | Uso |
 |---------|-----|
-| `/api/settings-ui` | Página web de configuração (conexões Google/Meta + contas de anúncio). |
-| `/api/settings` | JSON: estado das conexões e contas salvas. |
+| `/api/settings-ui` | Página web de configuração (seleção de contas de anúncio). |
+| `/api/settings` | JSON: presença dos tokens + contas salvas. |
 | `/api/settings/accounts` | GET: contas salvas · POST: substitui a lista de contas. |
 | `/api/settings/import-configs` | POST: importa (uma última vez) a aba CONFIGS para o banco. |
-| `/api/accounts/discover` | GET: lista contas Google Ads + Meta do usuário conectado. |
-| `/api/auth/google/start` · `/api/auth/google/callback` | Fluxo OAuth Google Ads. |
-| `/api/auth/meta/start` · `/api/auth/meta/callback` | Fluxo OAuth Meta (token longa duração). |
-| `/api/auth/disconnect` | POST: remove a conexão de um provedor. |
+| `/api/accounts/discover` | GET: lista contas Google Ads + Meta vinculadas aos tokens do ambiente. |
 | `/api/cron/enqueue` | Enfileira um job (202 Accepted). Aceita `batchSize`, `reset=1`, `databaseOnly=1`, `triggered_by`. |
 | `/api/cron/advance-queue` | Worker: pega próximo `pending`, processa, re-enfileira ou completa. |
 | `/api/cron/dashboards` | Supervisor + dashboards. |
@@ -115,7 +111,6 @@ Query opcionais no POST (mesma URL): `batchSize`, `force=1` (ignora checagem de 
 
 - `src/run.js` — job principal: lê `accounts_config` (fallback CONFIGS), escreve métricas no Supabase e estado `job_state` no Supabase
 - `src/core/calculator.js` — cálculos e normalização de métricas
-- `src/core/oauth.js` — fluxo OAuth Google/Meta (trocas de code, URLs de consentimento)
 - `src/core/reportGenerator.js` — geração do relatório (lê DATABASE do Supabase)
 - `src/core/serverlessJobs.js` — jobs serverless, auth de cron, `runQueuedUpdateJob`
 - `src/core/visualBlocks.js` — blocos visuais por gestor (lê DATABASE do Supabase)
@@ -123,7 +118,7 @@ Query opcionais no POST (mesma URL): `batchSize`, `force=1` (ignora checagem de 
 - `src/core/jobStateSupabase.js` — lock/cursor/heartbeat do `job_state` no Supabase
 - `src/services/supabase.js` — cliente Supabase + helpers de DATABASE
 - `src/services/jobQueue.js` — helpers da fila `job_queue`
-- `src/services/connections.js` — tokens OAuth salvos pela web (`app_connections`) + fallbacks do `.env`
+- `src/services/connections.js` — tokens das variáveis de ambiente (REFRESH_TOKEN / META_TOKEN)
 - `src/services/accountsConfig.js` — contas selecionadas na web (`accounts_config`) + importação da CONFIGS
 - `src/services/googleAds.js` — Google Ads
 - `src/services/meta.js` — Meta Ads
@@ -147,23 +142,19 @@ Query opcionais no POST (mesma URL): `batchSize`, `force=1` (ignora checagem de 
 Crie um `.env` com (veja o `.env.example` completo):
 
 ```env
-# Google OAuth + Google Ads (CLIENT_ID/SECRET também usados pelo fluxo OAuth da web)
+# Google Ads (o REFRESH_TOKEN determina quais contas aparecem na página web)
 CLIENT_ID=seu_client_id
 CLIENT_SECRET=seu_client_secret
 DEVELOPER_TOKEN=seu_developer_token
-
-# Fallbacks — usados apenas quando não há conexão feita pela página web
 REFRESH_TOKEN=seu_refresh_token
-META_TOKEN=seu_meta_token
 
-# Meta OAuth (página web) — app em developers.facebook.com (tipo Business)
-META_APP_ID=seu_meta_app_id
-META_APP_SECRET=seu_meta_app_secret
+# Meta Ads (o META_TOKEN determina quais contas aparecem na página web)
+META_TOKEN=seu_meta_token
 
 # Google Sheets (planilha de destino — escrita via service account)
 SPREADSHEET_ID=seu_spreadsheet_id
 
-# Supabase (DATABASE + JOB_STATE + JOB_QUEUE + ACCOUNTS_CONFIG + APP_CONNECTIONS)
+# Supabase (DATABASE + JOB_STATE + JOB_QUEUE + ACCOUNTS_CONFIG)
 SUPABASE_URL=https://xxxx.supabase.co
 SUPABASE_KEY=eyJhbGc...
 
@@ -171,26 +162,15 @@ SUPABASE_KEY=eyJhbGc...
 CRON_SECRET=segredo_compartilhado_para_cron
 ```
 
-> **Atenção:** rode primeiro o SQL em `supabase_schema.sql` no SQL Editor do Supabase (inclui `accounts_config` e `app_connections`) antes de subir o deploy.
-
-### Redirect URIs OAuth (registrar nos consoles)
-
-- Google Cloud Console → Credenciais → seu OAuth Client:
-  `https://<seu-dominio>/api/auth/google/callback`
-- Meta for Developers → seu app → Facebook Login / Marketing API settings:
-  `https://<seu-dominio>/api/auth/meta/callback`
-
-> **Google:** mantenha o OAuth consent screen em modo **production** (publicado). Em modo *testing* o refresh token expira em **7 dias** e a conta precisará ser reconectada.
->
-> **Meta:** o app pode ficar em modo desenvolvimento para uso próprio — conecte com um usuário que tem papel no app (admin/developer/tester). O token salvo é de longa duração (~60 dias) e é renovado automaticamente quando usado.
+> **Atenção:** rode primeiro o SQL em `supabase_schema.sql` no SQL Editor do Supabase (inclui `accounts_config`) antes de subir o deploy. Quem já criou a tabela legada `app_connections` pode removê-la: `DROP TABLE IF EXISTS public.app_connections;`
 
 ---
 
 ## Como usar
 
 1. Rode o SQL em `supabase_schema.sql` no Supabase.
-2. Configure as variáveis de ambiente na Vercel e os redirect URIs nos consoles Google/Meta.
-3. Abra `/api/settings-ui?secret=<CRON_SECRET>` → conecte Google e Meta → busque as contas → selecione quais vão para a planilha (ou importe a CONFIGS) → salve.
+2. Configure as variáveis de ambiente na Vercel (tokens de Google Ads e Meta Ads).
+3. Abra `/api/settings-ui?secret=<CRON_SECRET>` → busque as contas → selecione quais vão para a planilha (ou importe a CONFIGS) → salve.
 4. Configure o acionador do Apps Script `avancarFilaAutomaticamente` a cada 1 minuto (worker).
 5. (Opcional) Configure um acionador para `enfileirarAtualizacaoAutomatica` a cada 2 horas (enfileirador).
 6. Agende `api/report` conforme desejado (por exemplo 8h e 17h locais).
@@ -199,4 +179,4 @@ CRON_SECRET=segredo_compartilhado_para_cron
 
 ## Resumo rápido
 
-Este projeto coleta dados de Google Ads e Meta Ads, grava métricas no Supabase, gera abas DASH-{Gestor} e SUPERVISOR na planilha, oferece atualização manual em `/api/update-now` e roda sem processo contínuo. A configuração (contas conectadas e seleção de contas de anúncio) é feita pela página web `/api/settings-ui`.
+Este projeto coleta dados de Google Ads e Meta Ads, grava métricas no Supabase, gera abas DASH-{Gestor} e SUPERVISOR na planilha, oferece atualização manual em `/api/update-now` e roda sem processo contínuo. A seleção de quais contas de anúncio entram na planilha é feita pela página web `/api/settings-ui`, usando os tokens fixos do ambiente.

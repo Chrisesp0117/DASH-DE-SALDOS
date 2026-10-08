@@ -102,6 +102,38 @@ function assertCronAuth(req, res) {
   return null;
 }
 
+/**
+ * Lê o body JSON de uma request serverless (Vercel costuma entregar req.body
+ * já parseado; trata string/buffer como fallback).
+ */
+async function readJsonBody(req) {
+  if (req && req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
+    return req.body;
+  }
+  if (typeof req.body === 'string') {
+    try {
+      return JSON.parse(req.body);
+    } catch (_) {
+      return {};
+    }
+  }
+  if (req && typeof req.on === 'function') {
+    return new Promise((resolve) => {
+      let raw = '';
+      req.on('data', (chunk) => { raw += chunk; });
+      req.on('end', () => {
+        try {
+          resolve(raw ? JSON.parse(raw) : {});
+        } catch (_) {
+          resolve({});
+        }
+      });
+      req.on('error', () => resolve({}));
+    });
+  }
+  return {};
+}
+
 async function runUpdateJob(options = {}) {
   return run({
     skipDashboards: true,
@@ -455,6 +487,7 @@ module.exports = {
   getCronSecretFromRequest,
   getSafeMaxMs,
   sendJson,
+  readJsonBody,
   runUpdateJob,
   runQueuedUpdateJob,
   runDashboardJob,

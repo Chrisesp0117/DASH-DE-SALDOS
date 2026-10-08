@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(powershell *)",
-      "Bash(npm run check:keys *)"
-    ]
-  }
-}

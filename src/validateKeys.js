@@ -1,6 +1,6 @@
 require('dotenv').config({ path: '.env' });
 const axios = require('axios');
-const { getGoogleRefreshToken, getMetaAccessToken, getConnectionsSummary } = require('./services/connections');
+const { getGoogleRefreshToken, getMetaAccessToken } = require('./services/connections');
 const { listAccounts } = require('./services/accountsConfig');
 
 async function checkEnvVars() {
@@ -24,10 +24,9 @@ async function checkEnvVars() {
 async function checkGoogleRefresh() {
   const refreshToken = await getGoogleRefreshToken();
   if (!refreshToken) {
-    console.error('Google: sem refresh token — conecte a conta em /api/settings-ui ou defina REFRESH_TOKEN no .env');
+    console.error('Google: REFRESH_TOKEN não configurado no .env');
     return false;
   }
-  const source = String(process.env.REFRESH_TOKEN || '').trim() === refreshToken ? 'env' : 'web';
 
   const url = 'https://oauth2.googleapis.com/token';
   const params = new URLSearchParams();
@@ -42,14 +41,14 @@ async function checkGoogleRefresh() {
       timeout: 10000
     });
     if (res.data && res.data.access_token) {
-      console.log(`Google refresh token OK (fonte: ${source}).`);
+      console.log('Google refresh token OK.');
       return true;
     }
     console.error('Google token endpoint returned unexpected response:', res.data);
     return false;
   } catch (err) {
     const info = err.response?.data || err.message;
-    console.error(`Google refresh token validation failed (fonte: ${source}):`, info);
+    console.error('Google refresh token validation failed:', info);
     return false;
   }
 }
@@ -57,10 +56,9 @@ async function checkGoogleRefresh() {
 async function checkMetaToken() {
   const token = await getMetaAccessToken();
   if (!token) {
-    console.error('Meta: sem access token — conecte a conta em /api/settings-ui ou defina META_TOKEN no .env');
+    console.error('Meta: META_TOKEN não configurado no .env');
     return false;
   }
-  const source = String(process.env.META_TOKEN || '').trim() === token ? 'env' : 'web';
 
   const url = 'https://graph.facebook.com/v18.0/me';
   try {
@@ -69,28 +67,15 @@ async function checkMetaToken() {
       timeout: 10000
     });
     if (res.data && res.data.id) {
-      console.log(`Meta token OK (fonte: ${source}, id: ${res.data.id}).`);
+      console.log('Meta token OK (id: ' + res.data.id + ').');
       return true;
     }
     console.error('Meta token check returned unexpected response:', res.data);
     return false;
   } catch (err) {
     const info = err.response?.data || err.message;
-    console.error(`Meta token validation failed (fonte: ${source}):`, info);
+    console.error('Meta token validation failed:', info);
     return false;
-  }
-}
-
-async function printConnectionsSummary() {
-  try {
-    const summary = await getConnectionsSummary();
-    const g = summary.google;
-    const m = summary.meta;
-    console.log('\nConexões web (app_connections):');
-    console.log(`  Google: ${g.connected ? 'conectada (' + (g.email || 'sem e-mail') + ')' : 'não conectada'}${summary.envFallback.google ? ' — fallback REFRESH_TOKEN do .env ativo' : ''}`);
-    console.log(`  Meta:   ${m.connected ? 'conectada (' + (m.name || m.userId || 'sem nome') + ')' : 'não conectada'}${summary.envFallback.meta ? ' — fallback META_TOKEN do .env ativo' : ''}`);
-  } catch (e) {
-    console.warn('Não foi possível ler as conexões web:', e && e.message);
   }
 }
 
@@ -120,7 +105,6 @@ async function runChecks() {
     okMeta = await checkMetaToken();
   }
 
-  await printConnectionsSummary();
   await printAccountsConfig();
 
   const ok = okEnv && okGoogle && okMeta;

@@ -1,12 +1,12 @@
 /**
  * GET /api/settings?secret=...
- * Estado atual da configuração web: conexões OAuth (sem tokens) +
- * contas já selecionadas. Usado pela página /api/settings-ui.
+ * Estado atual da configuração web: presença dos tokens (sem expor valores)
+ * + contas já selecionadas. Usado pela página /api/settings-ui.
  */
 require('dotenv').config({ path: '.env' });
 
 const { assertCronAuth, sendJson } = require('../src/core/serverlessJobs');
-const { getConnectionsSummary } = require('../src/services/connections');
+const { getTokenStatus } = require('../src/services/connections');
 const { listAccounts, ACCOUNTS_TABLE } = require('../src/services/accountsConfig');
 
 module.exports = async (req, res) => {
@@ -14,14 +14,14 @@ module.exports = async (req, res) => {
   if (authResponse) return authResponse;
 
   try {
-    const [connections, accounts] = await Promise.all([
-      getConnectionsSummary(),
+    const [tokens, accounts] = await Promise.all([
+      Promise.resolve(getTokenStatus()),
       listAccounts()
     ]);
 
     return sendJson(res, {
       ok: true,
-      connections,
+      tokens,
       accounts,
       counts: {
         total: accounts.length,

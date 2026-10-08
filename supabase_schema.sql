@@ -1,8 +1,8 @@
 -- ============================================================================
 -- DASH-DE-SALDOS — Schema Supabase
 -- Cole e rode este bloco inteiro no SQL Editor do Supabase (Dashboard > SQL > New Query).
--- Cria as tabelas: database_rows, job_state, job_history, job_queue,
---                  app_connections (OAuth Google/Meta), accounts_config (contas web)
+-- Cria as tabelas: database_rows, job_state, job_history, job_queue e
+--                  accounts_config (contas selecionadas na página web)
 -- O bloco é idempotente: pode ser re-executado em bases já migradas.
 -- ============================================================================
 
@@ -287,54 +287,11 @@ RETURNS TABLE (id BIGINT, attempts INTEGER) AS $$
 $$ LANGUAGE SQL;
 
 -- ---------------------------------------------------------------------------
--- 8) APP_CONNECTIONS — tokens OAuth salvos pela página de configurações web
---    (/api/settings-ui). Uma linha por provedor ('google' | 'meta').
---    Substituem REFRESH_TOKEN / META_TOKEN do .env quando conectados.
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.app_connections (
-  id               BIGSERIAL PRIMARY KEY,
-  provider         TEXT NOT NULL,                  -- 'google' | 'meta'
-  email            TEXT,                           -- e-mail da conta Google conectada
-  account_name     TEXT,                           -- nome do usuário Meta conectado
-  meta_user_id     TEXT,
-  refresh_token    TEXT,                           -- Google: refresh token OAuth
-  access_token     TEXT,                           -- Meta: token de longa duração
-  token_expires_at TIMESTAMPTZ,
-  scopes           TEXT,
-  status           TEXT DEFAULT 'connected',      -- connected | error
-  error_message    TEXT,
-  created_at       TIMESTAMPTZ DEFAULT now(),
-  updated_at       TIMESTAMPTZ DEFAULT now()
-);
-
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_app_connections_provider') THEN
-    ALTER TABLE public.app_connections
-      ADD CONSTRAINT uq_app_connections_provider UNIQUE (provider);
-  END IF;
-END$$;
-
-ALTER TABLE public.app_connections ENABLE ROW LEVEL SECURITY;
-
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'public_all_app_connections' AND schemaname = 'public' AND tablename = 'app_connections') THEN
-    CREATE POLICY public_all_app_connections ON public.app_connections
-      FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-  END IF;
-END$$;
-
-CREATE TRIGGER trg_app_connections_updated_at
-  BEFORE UPDATE ON public.app_connections
-  FOR EACH ROW
-  EXECUTE FUNCTION public.set_updated_at();
-
--- ---------------------------------------------------------------------------
--- 9) ACCOUNTS_CONFIG — contas de anúncio selecionadas na página web.
---    Substitui a aba CONFIGS da planilha (mantida como fallback/legado).
---    Uma linha por conta: cliente, plataforma, id, gestor, supervisor,
---    revisão (só processa 'ok') e login_customer_id/MCC (Google, opcional).
+-- 8) (legado) APP_CONNECTIONS — armazenava tokens OAuth conectados pela web.
+--    O fluxo OAuth foi removido: as contas agora são buscadas com os tokens
+--    fixos do ambiente (REFRESH_TOKEN / META_TOKEN). Se a sua base já tem
+--    essa tabela, pode removê-la com:
+--      DROP TABLE IF EXISTS public.app_connections;
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.accounts_config (
   id                BIGSERIAL PRIMARY KEY,
@@ -383,5 +340,4 @@ CREATE TRIGGER trg_accounts_config_updated_at
 -- SELECT * FROM public.job_history ORDER BY created_at DESC LIMIT 10;
 -- SELECT cliente, plataforma, saldo, gestor, status, updated_at FROM public.database_rows LIMIT 20;
 -- SELECT * FROM public.job_queue ORDER BY id DESC LIMIT 10;
--- SELECT provider, email, account_name, status, updated_at FROM public.app_connections;
 -- SELECT cliente, plataforma, customer_id, gestor, revisao, ordem FROM public.accounts_config ORDER BY ordem;

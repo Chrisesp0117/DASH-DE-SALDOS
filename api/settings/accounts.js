@@ -7,9 +7,8 @@
  */
 require('dotenv').config({ path: '.env' });
 
-const { assertCronAuth, sendJson } = require('../../src/core/serverlessJobs');
+const { assertCronAuth, sendJson, readJsonBody } = require('../../src/core/serverlessJobs');
 const { listAccounts, saveAccounts } = require('../../src/services/accountsConfig');
-const { readJsonBody } = require('../../src/core/oauth');
 
 module.exports = async (req, res) => {
   const authResponse = assertCronAuth(req, res);

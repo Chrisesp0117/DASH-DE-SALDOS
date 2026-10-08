@@ -87,26 +87,6 @@ module.exports = async (req, res) => {
     return require('./api/accounts/discover')(req, res);
   }
 
-  if (path === '/api/auth/google/start') {
-    return require('./api/auth/google/start')(req, res);
-  }
-
-  if (path === '/api/auth/google/callback') {
-    return require('./api/auth/google/callback')(req, res);
-  }
-
-  if (path === '/api/auth/meta/start') {
-    return require('./api/auth/meta/start')(req, res);
-  }
-
-  if (path === '/api/auth/meta/callback') {
-    return require('./api/auth/meta/callback')(req, res);
-  }
-
-  if (path === '/api/auth/disconnect') {
-    return require('./api/auth/disconnect')(req, res);
-  }
-
   if (path.startsWith('/api/')) {
     return sendJson(res, {
       ok: false,

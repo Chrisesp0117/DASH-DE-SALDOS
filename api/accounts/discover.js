@@ -1,8 +1,8 @@
 /**
  * GET /api/accounts/discover?secret=...
- * Lista as contas de anúncio acessíveis pelo usuário conectado:
- *  - Google Ads: listAccessibleCustomers (refresh token OAuth) + nome via GAQL
- *  - Meta Ads: /me/adaccounts (token long-lived OAuth)
+ * Lista TODAS as contas de anúncio vinculadas aos tokens do ambiente:
+ *  - Google Ads: listAccessibleCustomers (REFRESH_TOKEN) + nome via GAQL
+ *  - Meta Ads: /me/adaccounts (META_TOKEN)
  * Cada conta retornada vem marcada com os dados já salvos na accounts_config
  * (existing) para a UI pré-selecionar.
  */
@@ -41,7 +41,7 @@ async function discoverGoogleAccounts(existingBykey) {
   if (!refreshToken) {
     return {
       ok: false,
-      error: 'Nenhuma conta Google conectada. Conecte o Google na página de configurações (ou defina REFRESH_TOKEN no .env).'
+      error: 'REFRESH_TOKEN não configurado no ambiente — toda conta Google Ads vinculada a esse token seria listada aqui.'
     };
   }
 
@@ -107,7 +107,7 @@ async function discoverMetaAccounts(existingBykey) {
   if (!token) {
     return {
       ok: false,
-      error: 'Nenhuma conta Meta conectada. Conecte o Meta na página de configurações (ou defina META_TOKEN no .env).'
+      error: 'META_TOKEN não configurado no ambiente — toda conta de anúncio vinculada a esse token seria listada aqui.'
     };
   }
 

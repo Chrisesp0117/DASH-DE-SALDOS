@@ -4,8 +4,8 @@
  * GET /api/settings-ui?secret=... → HTML da página de configurações.
  *
  * Substitui a aba CONFIGS da planilha como painel de configuração:
- *  - Conexão OAuth da conta Google (Google Ads) e da conta Meta (Meta Ads)
- *  - Descoberta das contas de anúncio vinculadas ao perfil conectado
+ *  - Fonte de dados: tokens fixos do ambiente (REFRESH_TOKEN / META_TOKEN)
+ *  - Descoberta de TODAS as contas de anúncio vinculadas a esses tokens
  *  - Seleção de quais contas vão para a planilha + campos por conta
  *    (cliente, gestor, supervisor, MCC e revisão)
  *  - Importação única da aba CONFIGS (transição)
@@ -278,10 +278,10 @@ function renderSettingsPage(params) {
       <div class="badge">Web</div>
     </div>
 
-    <!-- CONEXÕES -->
+    <!-- FONTE DE DADOS -->
     <div class="card">
-      <h2 class="section-title">Contas conectadas</h2>
-      <p class="section-desc">Conecte sua conta do Google (Google Ads) e do Meta (Facebook/Meta Ads). As contas de anúncio vinculadas ao seu perfil serão listadas para seleção.</p>
+      <h2 class="section-title">Fonte de dados</h2>
+      <p class="section-desc">As contas são buscadas com os tokens fixos das variáveis de ambiente: <b>REFRESH_TOKEN</b> (Google Ads) e <b>META_TOKEN</b> (Meta Ads). Toda conta vinculada a esses tokens aparece na lista abaixo.</p>
 
       <div class="conn" id="conn-google">
         <div class="conn-identity">
@@ -291,7 +291,6 @@ function renderSettingsPage(params) {
             <div class="conn-status" id="google-status">Carregando…</div>
           </div>
         </div>
-        <div style="display:flex; gap:8px;" id="google-actions"></div>
       </div>
 
       <div class="conn" id="conn-meta">
@@ -302,16 +301,13 @@ function renderSettingsPage(params) {
             <div class="conn-status" id="meta-status">Carregando…</div>
           </div>
         </div>
-        <div style="display:flex; gap:8px;" id="meta-actions"></div>
       </div>
-
-      <div class="note" id="conn-note" style="display:none"></div>
     </div>
 
     <!-- CONTAS -->
     <div class="card">
       <h2 class="section-title">Contas de anúncio</h2>
-      <p class="section-desc">Busque as contas vinculadas aos perfis conectados, marque quais devem entrar na planilha e preencha os campos. A ordem de salvamento define a ordem nas abas DASH.</p>
+      <p class="section-desc">Busque as contas vinculadas aos tokens acima, marque quais devem entrar na planilha e preencha os campos. A ordem de salvamento define a ordem nas abas DASH.</p>
 
       <div class="toolbar">
         <button id="btn-discover" class="btn btn-primary">
@@ -393,69 +389,25 @@ function renderSettingsPage(params) {
       }
 
       // ---------- estado ----------
-      let state = { connections: null, accounts: [] };
+      let state = { tokens: null, accounts: [] };
       let rows = []; // [{platform, id, name, manager, status, currency, existing, fromSaved, checked}]
 
-      function connBadgeText(conn, providerLabel) {
-        if (!conn.connected) {
-          return conn.envFallback ? 'Não conectada — usando token do .env' : 'Não conectada';
-        }
-        return conn.status === 'error'
-          ? ('Erro: ' + (conn.errorMessage || 'verifique'))
-          : ('Conectada' + (conn.email ? ' — ' + conn.email : '') + (conn.name ? ' — ' + conn.name : ''));
-      }
-
-      function renderConnections() {
-        const c = state.connections || {};
-        const g = c.google || { connected: false };
-        const m = c.meta || { connected: false };
+      function renderTokens() {
+        const t = state.tokens || {};
+        const g = t.google || { configured: false };
+        const m = t.meta || { configured: false };
 
         const gs = $('google-status');
-        gs.textContent = connBadgeText(g, 'Google');
-        gs.className = 'conn-status ' + (g.connected ? (g.status === 'error' ? 'err' : 'on') : '');
+        gs.textContent = g.configured
+          ? 'Token configurado (REFRESH_TOKEN no ambiente)'
+          : 'Token ausente — defina REFRESH_TOKEN na Vercel';
+        gs.className = 'conn-status ' + (g.configured ? 'on' : 'err');
 
         const ms = $('meta-status');
-        ms.textContent = connBadgeText(m, 'Meta');
-        ms.className = 'conn-status ' + (m.connected ? (m.status === 'error' ? 'err' : 'on') : '');
-
-        $('google-actions').innerHTML = g.connected
-          ? '<button class="btn btn-danger btn-sm" id="btn-disc-google">Desconectar</button>'
-          : '<button class="btn btn-primary btn-sm" id="btn-conn-google">Conectar Google</button>';
-        $('meta-actions').innerHTML = m.connected
-          ? '<button class="btn btn-danger btn-sm" id="btn-disc-meta">Desconectar</button>'
-          : '<button class="btn btn-primary btn-sm" id="btn-conn-meta">Conectar Meta</button>';
-
-        const gb = $('btn-conn-google');
-        if (gb) gb.onclick = () => { window.location.href = '/api/auth/google/start?secret=' + encodeURIComponent(secret); };
-        const mb = $('btn-conn-meta');
-        if (mb) mb.onclick = () => { window.location.href = '/api/auth/meta/start?secret=' + encodeURIComponent(secret); };
-        const gdb = $('btn-disc-google');
-        if (gdb) gdb.onclick = () => disconnect('google');
-        const mdb = $('btn-disc-meta');
-        if (mdb) mdb.onclick = () => disconnect('meta');
-
-        const note = $('conn-note');
-        const hasAny = g.connected || m.connected;
-        const hasEnv = (c.envFallback && (c.envFallback.google || c.envFallback.meta));
-        if (!hasAny && hasEnv) {
-          note.style.display = 'block';
-          note.innerHTML = '<b>Atenção:</b> nenhuma conta conectada via web — o job está usando os tokens fixos do .env (REFRESH_TOKEN / META_TOKEN). Conecte as contas acima para gerenciar tudo por aqui.';
-        } else if (hasAny) {
-          note.style.display = 'none';
-        } else {
-          note.style.display = 'block';
-          note.innerHTML = '<b>Atenção:</b> nenhuma conta conectada e nenhum token no .env. Conecte Google e Meta para buscar suas contas de anúncio.';
-        }
-      }
-
-      async function disconnect(provider) {
-        try {
-          await apiPost('/api/auth/disconnect', { provider: provider });
-          toast(provider === 'google' ? 'Conta Google desconectada' : 'Conta Meta desconectada', 'success');
-          await loadState();
-        } catch (e) {
-          toast('Falha ao desconectar: ' + e.message, 'error');
-        }
+        ms.textContent = m.configured
+          ? 'Token configurado (META_TOKEN no ambiente)'
+          : 'Token ausente — defina META_TOKEN na Vercel';
+        ms.className = 'conn-status ' + (m.configured ? 'on' : 'err');
       }
 
       // ---------- tabela de contas ----------
@@ -665,13 +617,13 @@ function renderSettingsPage(params) {
       async function loadState() {
         try {
           const data = await apiGet('/api/settings?secret=' + encodeURIComponent(secret));
-          state = { connections: data.connections, accounts: data.accounts || [] };
-          renderConnections();
+          state = { tokens: data.tokens, accounts: data.accounts || [] };
+          renderTokens();
           if (!rows.length && state.accounts.length) {
             rowsFromSavedOnly();
             renderRows();
           } else if (!rows.length && !state.accounts.length) {
-            $('accounts-area').innerHTML = '<div class="empty">Nenhuma conta configurada ainda.<br />Clique em <b>Buscar contas nas APIs</b> para listar as contas dos perfis conectados,<br />ou em <b>Importar da planilha (CONFIGS)</b> para trazer a configuração atual.</div>';
+            $('accounts-area').innerHTML = '<div class="empty">Nenhuma conta configurada ainda.<br />Clique em <b>Buscar contas nas APIs</b> para listar as contas vinculadas aos tokens,<br />ou em <b>Importar da planilha (CONFIGS)</b> para trazer a configuração atual.</div>';
           }
         } catch (e) {
           toast('Falha ao carregar configurações: ' + e.message, 'error');
@@ -747,21 +699,6 @@ function renderSettingsPage(params) {
       }
 
       // ---------- inicialização ----------
-      const urlParams = new URLSearchParams(window.location.search);
-      if (urlParams.get('connected')) {
-        toast(urlParams.get('connected') === 'google' ? 'Conta Google conectada!' : 'Conta Meta conectada!', 'success');
-      }
-      if (urlParams.get('error')) {
-        const msgs = {
-          unauthorized: 'Sessão inválida (state). Tente conectar de novo.',
-          missing_code: 'O login não foi concluído (sem código de autorização). Tente de novo.',
-          access_denied: 'Conexão cancelada — é preciso aceitar as permissões na tela do Google/Facebook.',
-          google_connect_failed: 'Falha ao conectar o Google: ' + (urlParams.get('detail') || ''),
-          meta_connect_failed: 'Falha ao conectar o Meta: ' + (urlParams.get('detail') || '')
-        };
-        toast(msgs[urlParams.get('error')] || ('Erro: ' + urlParams.get('error') + (urlParams.get('detail') ? ' — ' + urlParams.get('detail') : '')), 'error');
-      }
-
       $('monitor-link').href = '/api/update-now?secret=' + encodeURIComponent(secret);
       $('btn-discover').onclick = discover;
       $('btn-import').onclick = importConfigs;
