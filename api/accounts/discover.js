@@ -210,37 +210,7 @@ async function discoverGoogleAccounts(req, existingBykey) {
     console.error('[accounts/discover] google listAccessibleCustomers:', raw);
   }
 
-  // 2) Hierarquia dos MCCs conhecidos (contas gerenciadas não aparecem no
-  //    listAccessibleCustomers — só via customer_client no manager).
-  const mccIds = await collectKnownMccIds(req);
-  const mccsUsed = [];
-  const mccErrors = [];
-  for (let start = 0; start < mccIds.length; start += GOOGLE_MCC_CONCURRENCY) {
-    const chunk = mccIds.slice(start, start + GOOGLE_MCC_CONCURRENCY);
-    const results = await Promise.all(chunk.map(async (mccId) => {
-      try {
-        const accounts = await discoverGoogleHierarchyForMcc(refreshToken, mccId);
-        return { mccId, accounts, error: null };
-      } catch (error) {
-        const raw = (error && error.response && JSON.stringify(error.response.errors)) || (error && error.message) || String(error);
-        console.warn('[accounts/discover] hierarquia do MCC ' + mccId + ' falhou:', String(raw).slice(0, 200));
-        return { mccId, accounts: [], error: String(raw).slice(0, 120) };
-      }
-    }));
-    for (const result of results) {
-      if (result.error) {
-        mccErrors.push(result.mccId + ': ' + result.error);
-      } else {
-        mccsUsed.push(result.mccId);
-      }
-      for (const acc of result.accounts) {
-        // A hierarquia traz nome/conflict currency/status — prioriza sobre a direta
-        byId.set(acc.id, acc);
-      }
-    }
-  }
-
-  // 3) Nome das contas diretas que ainda não têm nome
+  // 2) Nome das contas diretas (também detecta quais são gerenciadoras/MCC)
   const unnamedDirect = directIds.filter(id => {
     const acc = byId.get(id);
     return acc && acc.direct && !acc.name;
@@ -272,14 +242,50 @@ async function discoverGoogleAccounts(req, existingBykey) {
     }
   }
 
+  // 3) Hierarquia dos MCCs conhecidos: query ?mcc=, env, contas salvas, aba
+  //    CONFIGS legada — e TODAS as contas gerenciadoras com acesso direto
+  //    (as contas de anúncio ficam sob elas, não sob o link direto do token).
+  const knownMccIds = await collectKnownMccIds(req);
+  const directManagerIds = Array.from(byId.values())
+    .filter(acc => acc.manager === true)
+    .map(acc => acc.id);
+  const mccIds = Array.from(new Set([...knownMccIds, ...directManagerIds]));
+
+  const mccsUsed = [];
+  const mccErrors = [];
+  for (let start = 0; start < mccIds.length; start += GOOGLE_MCC_CONCURRENCY) {
+    const chunk = mccIds.slice(start, start + GOOGLE_MCC_CONCURRENCY);
+    const results = await Promise.all(chunk.map(async (mccId) => {
+      try {
+        const accounts = await discoverGoogleHierarchyForMcc(refreshToken, mccId);
+        return { mccId, accounts, error: null };
+      } catch (error) {
+        const raw = (error && error.response && JSON.stringify(error.response.errors)) || (error && error.message) || String(error);
+        console.warn('[accounts/discover] hierarquia do MCC ' + mccId + ' falhou:', String(raw).slice(0, 200));
+        return { mccId, accounts: [], error: String(raw).slice(0, 120) };
+      }
+    }));
+    for (const result of results) {
+      if (result.error) {
+        mccErrors.push(result.mccId + ': ' + result.error);
+      } else {
+        mccsUsed.push(result.mccId);
+      }
+      for (const acc of result.accounts) {
+        // A hierarquia traz nome/moeda/status — prioriza sobre a direta
+        byId.set(acc.id, acc);
+      }
+    }
+  }
+
   let accounts = Array.from(byId.values()).slice(0, GOOGLE_MAX_ACCOUNTS);
   accounts.sort((a, b) => Number(a.manager === false) - Number(b.manager === false) || String(a.name || a.id).localeCompare(String(b.name || b.id)));
 
   // Hint quando não veio nada: guia o usuário para informar o MCC
   let hint = null;
   if (!accounts.length) {
-    hint = mccIds.length
-      ? 'Nenhuma conta encontrada nem via MCCs conhecidos (' + mccIds.join(', ') + '). Verifique se o REFRESH_TOKEN tem acesso ao MCC e se o ID está correto.'
+    hint = knownMccIds.length
+      ? 'Nenhuma conta encontrada nem via MCCs conhecidos (' + knownMccIds.join(', ') + '). Verifique se o REFRESH_TOKEN tem acesso ao MCC e se o ID está correto.'
       : 'Nenhuma conta com acesso direto ao REFRESH_TOKEN (listAccessibleCustomers vazio). Se suas contas ficam sob um MCC (conta gerenciadora), informe o ID dele (10 dígitos) no campo "MCC Google" ao lado e clique em Buscar de novo.';
   }
 
