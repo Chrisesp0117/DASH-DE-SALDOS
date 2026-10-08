@@ -87,6 +87,10 @@ module.exports = async (req, res) => {
     return require('./api/accounts/discover')(req, res);
   }
 
+  if (path === '/api/accounts/meta-check') {
+    return require('./api/accounts/meta-check')(req, res);
+  }
+
   if (path.startsWith('/api/')) {
     return sendJson(res, {
       ok: false,
