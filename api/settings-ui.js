@@ -318,6 +318,7 @@ function renderSettingsPage(params) {
           <span class="spinner light" id="import-spinner"></span>
           <span id="import-text">Importar da planilha (CONFIGS)</span>
         </button>
+        <input class="filter-input" id="mcc-input" placeholder="MCC Google opcional (10 dígitos)" style="width:200px" title="Se as contas Google não aparecerem, informe o ID da conta gerenciadora (MCC) e clique em Buscar de novo" />
         <div class="spacer"></div>
         <input class="filter-input" id="filter" placeholder="Filtrar por nome ou ID…" style="display:none" />
       </div>
@@ -357,13 +358,14 @@ function renderSettingsPage(params) {
 
       // ---------- helpers ----------
       function $(id) { return document.getElementById(id); }
-      function toast(text, type) {
+      function toast(text, type, durationMs) {
+        const total = Number(durationMs) > 0 ? Number(durationMs) : 4600;
         const el = document.createElement('div');
         el.className = 'toast ' + (type || '');
         el.textContent = text;
         $('toasts').appendChild(el);
-        setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity 0.3s'; }, 4200);
-        setTimeout(() => { el.remove(); }, 4600);
+        setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity 0.3s'; }, total - 400);
+        setTimeout(() => { el.remove(); }, total);
       }
       function setBusy(btn, spinner, busy, labelIdle, labelBusy) {
         btn.disabled = busy;
@@ -432,8 +434,9 @@ function renderSettingsPage(params) {
             name: acc.name || (existing && existing.cliente) || null,
             idFormatted: acc.idFormatted || acc.id,
             manager: acc.manager === true,
-            status: acc.status,
+            inactive: acc.inactive === true,
             currency: acc.currency || '',
+            mccLogin: acc.mccLogin || '',
             fromSaved: false,
             existing: existing
           });
@@ -455,8 +458,9 @@ function renderSettingsPage(params) {
               name: a.cliente,
               idFormatted: a.customer_id,
               manager: false,
-              status: null,
+              inactive: false,
               currency: '',
+              mccLogin: a.login_customer_id || '',
               fromSaved: true,
               existing: a
             });
@@ -475,8 +479,9 @@ function renderSettingsPage(params) {
           name: a.cliente,
           idFormatted: a.customer_id,
           manager: false,
-          status: null,
+          inactive: false,
           currency: '',
+          mccLogin: a.login_customer_id || '',
           fromSaved: true,
           existing: a
         }));
@@ -488,7 +493,8 @@ function renderSettingsPage(params) {
           cliente: e.cliente || row.name || row.idFormatted || row.id,
           gestor: e.gestor || '',
           supervisor: e.supervisor || '',
-          loginCustomerId: e.login_customer_id || '',
+          // MCC: valor salvo ou o MCC da hierarquia onde a conta foi encontrada
+          loginCustomerId: e.login_customer_id || row.mccLogin || '',
           revisao: e.revisao || 'ok'
         };
       }
@@ -531,7 +537,7 @@ function renderSettingsPage(params) {
               + '<div class="acc-info"><div class="acc-name">' + esc(row.name || ('Conta ' + row.id)) + '</div>'
               + '<div class="acc-id">' + esc(row.idFormatted || row.id) + (row.currency ? ' · ' + esc(row.currency) : '') + '</div>'
               + (row.manager ? '<span class="acc-flag manager">Manager / MCC</span>' : '')
-              + (row.platform === 'META' && row.status != null && row.status !== 1 ? '<span class="acc-flag inactive">Não ativa</span>' : '')
+              + (row.inactive ? '<span class="acc-flag inactive">Não ativa</span>' : '')
               + (row.fromSaved ? '<span class="acc-flag saved">Salva (fora da API)</span>' : '')
               + '</div>'
               + '<div class="f-wrap"><input class="acc-input f-cliente" placeholder="Cliente" value="' + esc(v.cliente) + '"></div>'
@@ -634,7 +640,10 @@ function renderSettingsPage(params) {
         const btn = $('btn-discover');
         setBusy(btn, $('discover-spinner'), true);
         try {
-          const data = await apiGet('/api/accounts/discover?secret=' + encodeURIComponent(secret));
+          const mccVal = ($('mcc-input').value || '').trim();
+          const url = '/api/accounts/discover?secret=' + encodeURIComponent(secret)
+            + (mccVal ? '&mcc=' + encodeURIComponent(mccVal) : '');
+          const data = await apiGet(url);
           const errs = [];
           if (data.google && !data.google.ok) errs.push('Google: ' + data.google.error);
           if (data.meta && !data.meta.ok) errs.push('Meta: ' + data.meta.error);
@@ -642,9 +651,16 @@ function renderSettingsPage(params) {
           renderRows();
           if (errs.length) {
             toast(errs.join(' · '), 'warn');
+          } else if (data.google && data.google.ok && !(data.google.accounts || []).length && data.google.hint) {
+            // Contas Google não encontradas — mostra a orientação (informar MCC)
+            toast(data.google.hint, 'warn', 9000);
           } else {
             const total = ((data.google && data.google.accounts || []).length) + ((data.meta && data.meta.accounts || []).length);
             toast(total + ' conta(s) encontradas', 'success');
+            const mccErrors = (data.google && data.google.mccErrors) || [];
+            if (mccErrors.length) {
+              toast('MCCs com falha na busca: ' + mccErrors.slice(0, 2).join(' · ') + (mccErrors.length > 2 ? '…' : ''), 'warn', 9000);
+            }
           }
         } catch (e) {
           toast('Falha ao buscar contas: ' + e.message, 'error');
