@@ -98,6 +98,15 @@ async function getMetaData(accountId, token, context = {}) {
     throw new Error('META token ausente — defina META_TOKEN no ambiente');
   }
 
+  // A Graph API exige o prefixo act_ para nós de conta de anúncio.
+  // Aceita tanto "act_123..." (formato antigo da CONFIGS) quanto "123..." puro
+  // (formato salvo pela página web) e normaliza sempre para act_<id>.
+  const digits = String(accountId || '').replace(/\D/g, '');
+  if (!digits) {
+    throw new Error('ID da conta Meta ausente/inválido: "' + String(accountId || '') + '"');
+  }
+  const adAccountId = 'act_' + digits;
+
   let saldoRes, spend7dRes;
 
   // Insights enriquecidas (v21): a v18 não possui o campo `results`.
@@ -106,13 +115,13 @@ async function getMetaData(accountId, token, context = {}) {
   const fetchInsights = async () => {
     try {
       const res = await axios.get(
-        `https://graph.facebook.com/v21.0/${accountId}/insights?level=account&fields=spend,clicks,impressions,ctr,cpc,frequency,results,actions&date_preset=yesterday&access_token=${accessToken}`,
+        `https://graph.facebook.com/v21.0/${adAccountId}/insights?level=account&fields=spend,clicks,impressions,ctr,cpc,frequency,results,actions&date_preset=yesterday&access_token=${accessToken}`,
         { timeout: 15000 }
       );
       return { data: res.data, enriquecida: true };
     } catch (err) {
       const res = await axios.get(
-        `https://graph.facebook.com/v18.0/${accountId}/insights?level=account&fields=spend&date_preset=yesterday&access_token=${accessToken}`,
+        `https://graph.facebook.com/v18.0/${adAccountId}/insights?level=account&fields=spend&date_preset=yesterday&access_token=${accessToken}`,
         { timeout: 15000 }
       );
       return { data: res.data, enriquecida: false };
@@ -122,7 +131,7 @@ async function getMetaData(accountId, token, context = {}) {
   try {
     [saldoRes, spend7dRes] = await Promise.all([
       axios.get(
-        `https://graph.facebook.com/v18.0/${accountId}?fields=spend_cap,amount_spent&access_token=${accessToken}`
+        `https://graph.facebook.com/v18.0/${adAccountId}?fields=spend_cap,amount_spent&access_token=${accessToken}`
         ,
         { timeout: 15000 }
       ),
