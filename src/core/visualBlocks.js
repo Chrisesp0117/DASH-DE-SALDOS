@@ -1,38 +1,5 @@
 const { readDatabaseRows } = require('../services/supabase');
-
-function parseLocaleNumber(value) {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-  const raw = String(value || '').trim();
-  if (!raw) return 0;
-  let cleaned = raw.replace(/[^\d,.-]/g, '');
-  if (!cleaned) return 0;
-  if (cleaned.includes(',') && cleaned.includes('.')) {
-    cleaned = cleaned.replace(/\./g, '').replace(',', '.');
-  } else if (cleaned.includes(',')) {
-    cleaned = cleaned.replace(',', '.');
-  }
-  const n = Number(cleaned);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function parseDias(value) {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-  const text = String(value || '').trim().toLowerCase();
-  if (!text || text === '-') return null;
-  const diasMatch = text.match(/(\d+)\s*dias?/i);
-  const horasMatch = text.match(/(\d+)\s*horas?/i);
-  if (diasMatch || horasMatch) {
-    const dias = diasMatch ? Number(diasMatch[1]) : 0;
-    const horas = horasMatch ? Number(horasMatch[1]) : 0;
-    return dias + horas / 24;
-  }
-  const numeric = parseLocaleNumber(text);
-  return Number.isFinite(numeric) ? numeric : null;
-}
+const { getRowSeverity, SEVERITY_STYLES } = require('./severity');
 
 async function generateBlocosPorGestor(sheets, spreadsheetId) {
   // Read DATABASE rows from Supabase
@@ -58,8 +25,7 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
     metaRowDark: { red: 0.78, green: 0.88, blue: 0.98 },
     googleRowLight: { red: 0.88, green: 0.97, blue: 0.88 },
     googleRowDark: { red: 0.78, green: 0.92, blue: 0.78 },
-    // Critical low-saldo highlight
-    rowCritical: { red: 0.82, green: 0.18, blue: 0.18 },
+    // Destaques de severidade (amarelo/laranja/vermelho) vêm de ./severity.js
     separator: { red: 0.78, green: 0.78, blue: 0.78 },
     border: { red: 0.55, green: 0.55, blue: 0.55 },
     textDark: { red: 0, green: 0, blue: 0 },
@@ -142,14 +108,10 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
         m.cliente, m.saldo, m.gastoOntem, m.dias
       ]);
 
-      // Função para checar se deve destacar
-      function isCritical(diasValue, gastoOntemValue) {
-        if ((!diasValue || diasValue === '-') && (!gastoOntemValue || gastoOntemValue === '-')) return false;
-        const diasNum = parseDias(diasValue);
-        const gastoOntemNum = parseLocaleNumber(gastoOntemValue);
-        return (diasNum !== null && diasNum <= 7) || (gastoOntemNum !== null && gastoOntemNum <= 0);
-      }
-      // Cores base por plataforma
+      // Severidade compartilhada com as abas DASH (amarelo/laranja/vermelho)
+      const gSeverity = getRowSeverity({ dias: g.dias, gastoOntem: g.gastoOntem });
+      const mSeverity = getRowSeverity({ dias: m.dias, gastoOntem: m.gastoOntem });
+      // Cores base por plataforma (zebra)
       const googleBaseColor = (i % 2 === 0) ? theme.googleRowLight : theme.googleRowDark;
       const metaBaseColor = (i % 2 === 0) ? theme.metaRowLight : theme.metaRowDark;
       // Bordas padrão
@@ -159,42 +121,27 @@ async function generateBlocosPorGestor(sheets, spreadsheetId) {
         left: { style: 'SOLID', color: theme.border },
         right: { style: 'SOLID', color: theme.border }
       };
-      // Google: colunas 0-3
-      if (isCritical(g.dias, g.gastoOntem)) {
+      // Aplica severidade (ou zebra da plataforma): Google colunas 0-3, Meta colunas 5-8
+      const applyRowStyle = (severity, baseColor, startColumnIndex) => {
+        const style = severity ? SEVERITY_STYLES[severity] : null;
         formatRequests.push({
           repeatCell: {
-            range: { sheetId: null, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 0, endColumnIndex: 4 },
-            cell: { userEnteredFormat: { backgroundColor: theme.rowCritical, borders, textFormat: { foregroundColor: theme.textLight, bold: true } } },
+            range: { sheetId: null, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex, endColumnIndex: startColumnIndex + 4 },
+            cell: {
+              userEnteredFormat: {
+                backgroundColor: style ? style.background : baseColor,
+                borders,
+                textFormat: style
+                  ? { foregroundColor: style.foreground, bold: true }
+                  : { foregroundColor: theme.textDark, bold: false }
+              }
+            },
             fields: 'userEnteredFormat(backgroundColor,borders,textFormat.foregroundColor,textFormat.bold)'
           }
         });
-      } else {
-        formatRequests.push({
-          repeatCell: {
-            range: { sheetId: null, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 0, endColumnIndex: 4 },
-            cell: { userEnteredFormat: { backgroundColor: googleBaseColor, borders, textFormat: { foregroundColor: theme.textDark, bold: false } } },
-            fields: 'userEnteredFormat(backgroundColor,borders,textFormat.foregroundColor,textFormat.bold)'
-          }
-        });
-      }
-      // Meta: colunas 5-8
-      if (isCritical(m.dias, m.gastoOntem)) {
-        formatRequests.push({
-          repeatCell: {
-            range: { sheetId: null, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 5, endColumnIndex: 9 },
-            cell: { userEnteredFormat: { backgroundColor: theme.rowCritical, borders, textFormat: { foregroundColor: theme.textLight, bold: true } } },
-            fields: 'userEnteredFormat(backgroundColor,borders,textFormat.foregroundColor,textFormat.bold)'
-          }
-        });
-      } else {
-        formatRequests.push({
-          repeatCell: {
-            range: { sheetId: null, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 5, endColumnIndex: 9 },
-            cell: { userEnteredFormat: { backgroundColor: metaBaseColor, borders, textFormat: { foregroundColor: theme.textDark, bold: false } } },
-            fields: 'userEnteredFormat(backgroundColor,borders,textFormat.foregroundColor,textFormat.bold)'
-          }
-        });
-      }
+      };
+      applyRowStyle(gSeverity, googleBaseColor, 0); // Google
+      applyRowStyle(mSeverity, metaBaseColor, 5);  // Meta
       // Coluna separadora
       formatRequests.push({
         repeatCell: {

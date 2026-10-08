@@ -8,6 +8,7 @@
 const { generateBlocosPorGestor } = require('./visualBlocks');
 const { readDatabaseRows } = require('../services/supabase');
 const { listAccounts } = require('../services/accountsConfig');
+const { getRowSeverity, SEVERITY_STYLES } = require('./severity');
 
 const DASH_PREFIX = 'DASH-';
 const DASH_LAST_UPDATE_LABEL_CELL = 'D1';
@@ -105,55 +106,8 @@ async function listGestoresAtivos(sheets, spreadsheetId) {
   }
 }
 
-function parseDiasRestantes(value) {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-
-  const text = String(value || '').trim().toLowerCase();
-  if (!text || text === '-') {
-    return null;
-  }
-
-  const diasMatch = text.match(/(\d+)\s*dias?/i);
-  if (diasMatch) {
-    return Number(diasMatch[1]);
-  }
-
-  const numeric = Number(text.replace(',', '.'));
-  return Number.isFinite(numeric) ? numeric : null;
-}
-
-function parseLocaleNumber(value) {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-
-  const raw = String(value || '').trim();
-  if (!raw) {
-    return null;
-  }
-
-  let cleaned = raw.replace(/[^\d,.-]/g, '');
-  if (!cleaned) {
-    return null;
-  }
-
-  if (cleaned.includes(',') && cleaned.includes('.')) {
-    cleaned = cleaned.replace(/\./g, '').replace(',', '.');
-  } else if (cleaned.includes(',')) {
-    cleaned = cleaned.replace(',', '.');
-  }
-
-  const numeric = Number(cleaned);
-  return Number.isFinite(numeric) ? numeric : null;
-}
-
-function isCriticalRow(row) {
-  const dias = parseDiasRestantes(row.duracao);
-  const gastoOntem = parseLocaleNumber(row.gastoOntem);
-  return (dias !== null && dias <= 7) || (gastoOntem !== null && gastoOntem <= 0);
-}
+// Severidade das linhas (amarelo/laranja/vermelho) — lógica compartilhada
+// com o SUPERVISOR em ./severity.js (parsers e cores idênticos nas duas abas).
 
 function collectDashboardRows(databaseRows, gestor) {
   const metaRows = [];
@@ -186,7 +140,7 @@ function collectDashboardRows(databaseRows, gestor) {
       ctr: insightCell(row[17]),
       frequencia: insightCell(row[18]),
       cpc: insightCell(row[19]),
-      critical: isCriticalRow({ duracao: row[6], gastoOntem: row[4] })
+      severity: getRowSeverity({ duracao: row[6], gastoOntem: row[4] })
     };
 
     if (plataforma === 'META') {
@@ -532,8 +486,7 @@ async function applyDashboardFormatting(sheets, spreadsheetId, sheetId, metaRows
   const rowMetaDark = { red: 0.94, green: 0.97, blue: 1 };
   const rowGoogleLight = { red: 0.88, green: 0.96, blue: 0.88 };
   const rowGoogleDark = { red: 0.95, green: 0.99, blue: 0.95 };
-  const rowCritical = { red: 0.82, green: 0.18, blue: 0.18 };
-  const rowCriticalText = { red: 1, green: 1, blue: 1 };
+  // Destaques de severidade (amarelo/laranja/vermelho) vêm de ./severity.js
   const gridBorder = { style: 'SOLID', color: { red: 0.55, green: 0.55, blue: 0.55 } };
 
   const requests = [];
@@ -608,26 +561,29 @@ async function applyDashboardFormatting(sheets, spreadsheetId, sheetId, metaRows
   for (let i = 0; i < metaRows.length; i++) {
     const rowNumber = metaStartRow + i;
     const row = metaRows[i];
-    const baseColor = row.critical ? rowCritical : (i % 2 === 0 ? rowMetaLight : rowMetaDark);
+    const style = row.severity ? SEVERITY_STYLES[row.severity] : null;
     const format = {
-      backgroundColor: baseColor,
+      backgroundColor: style ? style.background : (i % 2 === 0 ? rowMetaLight : rowMetaDark),
       borders: {
         top: gridBorder,
         bottom: gridBorder,
         left: gridBorder,
         right: gridBorder
       },
-      textFormat: { foregroundColor: { red: 0, green: 0, blue: 0 }, bold: false }
+      textFormat: style
+        ? { bold: true, foregroundColor: style.foreground }
+        : { foregroundColor: { red: 0, green: 0, blue: 0 }, bold: false }
     };
 
-    const fields = 'userEnteredFormat(backgroundColor,borders,textFormat.foregroundColor,textFormat.bold)';
-    if (row.critical) {
-      format.textFormat = { bold: true, foregroundColor: rowCriticalText };
-    }
-
-    pushRowFormatRequests(requests, sheetId, rowNumber, 0, DASH_TOTAL_COLUMNS, format, row.critical
-      ? 'userEnteredFormat(backgroundColor,borders,textFormat.bold,textFormat.foregroundColor)'
-      : fields);
+    pushRowFormatRequests(
+      requests,
+      sheetId,
+      rowNumber,
+      0,
+      DASH_TOTAL_COLUMNS,
+      format,
+      'userEnteredFormat(backgroundColor,borders,textFormat.foregroundColor,textFormat.bold)'
+    );
   }
 
   pushRowFormatRequests(
@@ -652,26 +608,29 @@ async function applyDashboardFormatting(sheets, spreadsheetId, sheetId, metaRows
   for (let i = 0; i < googleRows.length; i++) {
     const rowNumber = googleStartRow + i;
     const row = googleRows[i];
-    const baseColor = row.critical ? rowCritical : (i % 2 === 0 ? rowGoogleLight : rowGoogleDark);
+    const style = row.severity ? SEVERITY_STYLES[row.severity] : null;
     const format = {
-      backgroundColor: baseColor,
+      backgroundColor: style ? style.background : (i % 2 === 0 ? rowGoogleLight : rowGoogleDark),
       borders: {
         top: gridBorder,
         bottom: gridBorder,
         left: gridBorder,
         right: gridBorder
       },
-      textFormat: { foregroundColor: { red: 0, green: 0, blue: 0 }, bold: false }
+      textFormat: style
+        ? { bold: true, foregroundColor: style.foreground }
+        : { foregroundColor: { red: 0, green: 0, blue: 0 }, bold: false }
     };
 
-    const fields = 'userEnteredFormat(backgroundColor,borders,textFormat.foregroundColor,textFormat.bold)';
-    if (row.critical) {
-      format.textFormat = { bold: true, foregroundColor: rowCriticalText };
-    }
-
-    pushRowFormatRequests(requests, sheetId, rowNumber, 0, DASH_TOTAL_COLUMNS, format, row.critical
-      ? 'userEnteredFormat(backgroundColor,borders,textFormat.bold,textFormat.foregroundColor)'
-      : fields);
+    pushRowFormatRequests(
+      requests,
+      sheetId,
+      rowNumber,
+      0,
+      DASH_TOTAL_COLUMNS,
+      format,
+      'userEnteredFormat(backgroundColor,borders,textFormat.foregroundColor,textFormat.bold)'
+    );
   }
 
   for (let col = 0; col < DASH_TOTAL_COLUMNS; col++) {

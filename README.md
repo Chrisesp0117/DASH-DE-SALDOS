@@ -41,6 +41,20 @@ O job principal lê as contas da tabela **`accounts_config`** (Supabase), consul
 
 Relatórios podem ser gerados através de chamadas HTTP (por exemplo `api/report`) e agendados externamente.
 
+### 3) Cores das linhas (SUPERVISOR + DASH-{Gestor})
+
+A lógica de destaque vive em **um único módulo** (`src/core/severity.js`), usado tanto pelo SUPERVISOR quanto pelas abas DASH-{Gestor} — as duas abas nunca divergem. A severidade é a maior entre:
+
+| Condição | Cor da linha | Texto |
+|---|---|---|
+| Sem gasto ontem (gasto ≤ 0) | 🔴 Vermelho | Branco, em negrito |
+| Duração ≤ 2 dias | 🔴 Vermelho | Branco, em negrito |
+| Duração ≤ 4 dias | 🟠 Laranja | Preto, em negrito |
+| Duração ≤ 6 dias | 🟡 Amarelo | Preto, em negrito |
+| Duração > 6 dias (e gastando) | Zebra normal da plataforma (verde p/ Google, azul p/ Meta) | Preto |
+
+A duração aceita textos como `"5 dias"`, `"10 horas"`, `"3,5"` e números; valores vazios ou `"-"` não destacam a linha.
+
 ---
 
 ## Atualização automática (Apps Script → fila → worker)
@@ -115,6 +129,7 @@ Query opcionais no POST (mesma URL): `batchSize`, `force=1` (ignora checagem de 
 
 - `src/run.js` — job principal: lê `accounts_config` (Supabase), escreve métricas no Supabase e estado `job_state` no Supabase
 - `src/core/calculator.js` — cálculos e normalização de métricas
+- `src/core/severity.js` — severidade compartilhada das linhas (amarelo ≤ 6 dias, laranja ≤ 4, vermelho ≤ 2 ou sem gasto)
 - `src/core/reportGenerator.js` — geração do relatório (lê DATABASE do Supabase)
 - `src/core/serverlessJobs.js` — jobs serverless, auth de cron, `runQueuedUpdateJob`
 - `src/core/visualBlocks.js` — blocos visuais por gestor (lê DATABASE do Supabase)
