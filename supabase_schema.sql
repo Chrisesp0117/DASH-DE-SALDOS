@@ -334,6 +334,31 @@ CREATE TRIGGER trg_accounts_config_updated_at
   EXECUTE FUNCTION public.set_updated_at();
 
 -- ---------------------------------------------------------------------------
+-- 10) APP_SETTINGS — listas de nomes (gestores/supervisores) dos dropdowns
+--     da página web. key = 'gestores' | 'supervisores'; value = array de texto.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.app_settings (
+  key        TEXT PRIMARY KEY,
+  value      JSONB NOT NULL DEFAULT '[]'::jsonb,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'public_all_app_settings' AND schemaname = 'public' AND tablename = 'app_settings') THEN
+    CREATE POLICY public_all_app_settings ON public.app_settings
+      FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+  END IF;
+END$$;
+
+CREATE TRIGGER trg_app_settings_updated_at
+  BEFORE UPDATE ON public.app_settings
+  FOR EACH ROW
+  EXECUTE FUNCTION public.set_updated_at();
+
+-- ---------------------------------------------------------------------------
 -- Verificações rápidas (rode manualmente após aplicar)
 -- ---------------------------------------------------------------------------
 -- SELECT * FROM public.job_state;

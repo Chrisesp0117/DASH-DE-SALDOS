@@ -79,6 +79,10 @@ module.exports = async (req, res) => {
     return require('./api/settings/accounts')(req, res);
   }
 
+  if (path === '/api/settings/nomes') {
+    return require('./api/settings/nomes')(req, res);
+  }
+
   if (path === '/api/accounts/discover') {
     return require('./api/accounts/discover')(req, res);
   }

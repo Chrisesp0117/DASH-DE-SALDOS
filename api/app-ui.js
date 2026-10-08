@@ -243,6 +243,8 @@ function renderAppPage(params) {
     .btn-primary:hover:not([disabled]) { filter: brightness(1.08); }
     .btn-secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
     .btn-secondary:hover:not([disabled]) { border-color: var(--primary); color: var(--primary); }
+    .btn-danger { background: transparent; color: var(--error); border: 1px solid rgba(239, 68, 68, 0.3); }
+    .btn-danger:hover:not([disabled]) { background: rgba(239, 68, 68, 0.08); }
     .spinner {
       width: 13px; height: 13px; border: 2px solid rgba(0, 0, 0, 0.2); border-radius: 50%;
       border-top-color: #000; animation: spin 0.7s linear infinite; display: none;
@@ -304,6 +306,40 @@ function renderAppPage(params) {
       color: var(--ink); border-radius: 7px; padding: 7px 9px; font-size: 11px; outline: none; font-family: inherit;
     }
     .acc-input:focus { border-color: var(--primary); }
+
+    /* DROPDOWN DE NOMES (gestor/supervisor) */
+    .sel-wrap { display: flex; gap: 4px; align-items: center; }
+    .sel-wrap > select { flex: 1; min-width: 0; }
+    .del-nome {
+      flex-shrink: 0; width: 26px; height: 26px; border-radius: 6px;
+      border: 1px solid rgba(239, 68, 68, 0.3); background: transparent; color: var(--error);
+      cursor: pointer; font-size: 12px; line-height: 1; padding: 0;
+      display: none; align-items: center; justify-content: center;
+      transition: background 0.15s ease;
+    }
+    .sel-wrap.has-value .del-nome { display: inline-flex; }
+    .del-nome:hover { background: rgba(239, 68, 68, 0.1); }
+    .novo-input {
+      flex: 1; min-width: 0; background: var(--card-2); border: 1px solid var(--primary);
+      color: var(--ink); border-radius: 7px; padding: 7px 9px; font-size: 11px; outline: none; font-family: inherit;
+    }
+
+    /* MODAL DE CONFIRMAÇÃO */
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 90;
+      background: rgba(0, 0, 0, 0.65);
+      display: none; align-items: center; justify-content: center;
+      padding: 20px;
+    }
+    .modal-overlay.visible { display: flex; }
+    .modal-box {
+      background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+      padding: 22px; max-width: 400px; width: 100%;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+    }
+    .modal-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
+    .modal-text { font-size: 12px; color: var(--muted); line-height: 1.55; margin-bottom: 18px; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
     .empty {
       padding: 36px 20px; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.6;
       border: 1px dashed var(--line); border-radius: 11px;
@@ -341,6 +377,18 @@ function renderAppPage(params) {
 </head>
 <body>
   <div class="toast-wrap" id="toasts"></div>
+
+  <div class="modal-overlay" id="confirm-overlay">
+    <div class="modal-box">
+      <div class="modal-title" id="confirm-title"></div>
+      <div class="modal-text" id="confirm-text"></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="confirm-cancel" style="padding:8px 14px;">Cancelar</button>
+        <button class="btn btn-danger" id="confirm-ok" style="padding:8px 14px;">Excluir</button>
+      </div>
+    </div>
+  </div>
+
   <div class="container">
     <div class="header">
       <div class="brand">
@@ -771,7 +819,7 @@ function renderAppPage(params) {
       // =================================================================
       // CONFIGURAÇÕES (aba Config)
       // =================================================================
-      let state = { tokens: null, accounts: [] };
+      let state = { tokens: null, accounts: [], nomes: { gestores: [], supervisores: [] } };
       let rows = [];
       let discoverDone = false;
       let platformFilter = 'all';
@@ -786,6 +834,169 @@ function renderAppPage(params) {
         const ms = $('meta-status');
         ms.textContent = m.configured ? 'Token configurado (META_TOKEN no ambiente)' : 'Token ausente — defina META_TOKEN na Vercel';
         ms.className = 'conn-status ' + (m.configured ? 'on' : 'err');
+      }
+
+      // ---------- dropdowns de gestor/supervisor ----------
+      function nomeList(type) {
+        const n = state.nomes || {};
+        return type === 'supervisor' ? (n.supervisores || []) : (n.gestores || []);
+      }
+
+      function nomeLabel(type) {
+        return type === 'supervisor' ? 'supervisor' : 'gestor';
+      }
+
+      function nomeOptionsHtml(type, currentValue) {
+        const list = nomeList(type);
+        let html = '<option value="">—</option>';
+        if (currentValue && !list.some(n => n === currentValue)) {
+          html += '<option value="' + esc(currentValue) + '">' + esc(currentValue) + '</option>';
+        }
+        for (const n of list) {
+          html += '<option value="' + esc(n) + '"' + (n === currentValue ? ' selected' : '') + '>' + esc(n) + '</option>';
+        }
+        html += '<option value="__novo__">➕ Novo ' + nomeLabel(type) + '…</option>';
+        return html;
+      }
+
+      function updateDelVisibility(sel) {
+        const wrap = sel.closest('.sel-wrap');
+        if (!wrap) return;
+        wrap.classList.toggle('has-value', sel.value !== '' && sel.value !== '__novo__');
+      }
+
+      function refreshNomeSelects() {
+        document.querySelectorAll('.sel-nome').forEach(sel => {
+          const type = sel.classList.contains('f-supervisor') ? 'supervisor' : 'gestor';
+          const wrap = sel.closest('.sel-wrap');
+          let current = sel.value;
+          if (!current || current === '__novo__') {
+            current = wrap.dataset.prevValue || '';
+          }
+          sel.innerHTML = nomeOptionsHtml(type, current);
+          sel.value = current;
+          if (sel.value !== current) sel.value = '';
+          updateDelVisibility(sel);
+        });
+      }
+
+      function nomeValue(rowEl, type) {
+        const sel = rowEl.querySelector(type === 'supervisor' ? '.f-supervisor' : '.f-gestor');
+        if (!sel) return '';
+        if (sel.value === '__novo__') {
+          const wrap = sel.closest('.sel-wrap');
+          return (wrap && wrap.dataset.prevValue) || '';
+        }
+        return sel.value || '';
+      }
+
+      function startNovoNome(sel) {
+        const wrap = sel.closest('.sel-wrap');
+        const type = wrap.dataset.nomeType;
+        if (wrap.querySelector('.novo-input')) return;
+
+        sel.style.display = 'none';
+        const delBtn = wrap.querySelector('.del-nome');
+        if (delBtn) delBtn.style.display = 'none';
+
+        const input = document.createElement('input');
+        input.className = 'novo-input';
+        input.placeholder = 'Nome do novo ' + nomeLabel(type);
+        wrap.appendChild(input);
+        input.focus();
+
+        let done = false;
+        const restore = () => {
+          input.remove();
+          sel.style.display = '';
+          sel.value = wrap.dataset.prevValue || '';
+          updateDelVisibility(sel);
+        };
+        const confirmNovo = async () => {
+          if (done) return;
+          done = true;
+          const nome = input.value.trim();
+          if (!nome) { restore(); return; }
+          try {
+            const data = await apiPost('/api/settings/nomes?secret=' + encodeURIComponent(secret), { action: 'add', type: type, nome: nome });
+            state.nomes = { gestores: data.gestores || [], supervisores: data.supervisores || [] };
+            refreshNomeSelects();
+            sel.value = nome;
+            updateDelVisibility(sel);
+            input.remove();
+            sel.style.display = '';
+            toast('"' + nome + '" adicionado à lista de ' + nomeLabel(type) + 's', 'success');
+            scheduleAutoSave(300);
+          } catch (e) {
+            toast('Falha ao salvar: ' + e.message, 'error');
+            restore();
+          }
+        };
+
+        input.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter') { ev.preventDefault(); confirmNovo(); }
+          if (ev.key === 'Escape') { ev.preventDefault(); done = true; restore(); }
+        });
+        input.addEventListener('blur', confirmNovo);
+      }
+
+      function showConfirm(title, text, onOk) {
+        const overlay = $('confirm-overlay');
+        $('confirm-title').textContent = title;
+        $('confirm-text').textContent = text;
+        overlay.classList.add('visible');
+        const ok = $('confirm-ok');
+        const cancel = $('confirm-cancel');
+        const close = () => {
+          overlay.classList.remove('visible');
+          ok.onclick = null;
+          cancel.onclick = null;
+        };
+        ok.onclick = () => { close(); onOk(); };
+        cancel.onclick = close;
+        overlay.onclick = (ev) => { if (ev.target === overlay) close(); };
+      }
+
+      async function askDeleteNome(btn) {
+        const wrap = btn.closest('.sel-wrap');
+        const type = wrap.dataset.nomeType;
+        const sel = wrap.querySelector('.sel-nome');
+        const nome = sel.value;
+        if (!nome || nome === '__novo__') return;
+
+        const col = type === 'gestor' ? 'gestor' : 'supervisor';
+        const usedSaved = (state.accounts || []).filter(a => String(a[col] || '') === nome).length;
+        let usedOnScreen = 0;
+        document.querySelectorAll('.acc-row').forEach(rowEl => {
+          if (nomeValue(rowEl, type) === nome) usedOnScreen++;
+        });
+        const used = Math.max(usedSaved, usedOnScreen);
+
+        const label = nomeLabel(type);
+        showConfirm(
+          'Excluir ' + label,
+          'Excluir "' + nome + '" da lista de ' + label + 's? ' +
+          (used > 0 ? used + ' conta(s) o usam e ficarão sem ' + label + '. ' : '') +
+          'Você pode adicioná-lo de novo depois.',
+          async () => {
+            try {
+              const data = await apiPost('/api/settings/nomes?secret=' + encodeURIComponent(secret), { action: 'delete', type: type, nome: nome });
+              state.nomes = { gestores: data.gestores || [], supervisores: data.supervisores || [] };
+              await loadState();
+              rows.forEach(r => {
+                if (r.existing && String(r.existing[col] || '') === nome) r.existing[col] = '';
+              });
+              const edits = rows.length ? collectEdits() : null;
+              if (edits) {
+                edits.forEach(e => { if (e[col] === nome) e[col] = ''; });
+              }
+              renderRows(edits);
+              toast('"' + nome + '" excluído', 'success');
+            } catch (e) {
+              toast('Falha ao excluir: ' + e.message, 'error');
+            }
+          }
+        );
       }
 
       function savedByKey() {
@@ -846,8 +1057,8 @@ function renderAppPage(params) {
           edits.set(rowEl.dataset.platform + '|' + rowEl.dataset.id, {
             checked: rowEl.querySelector('.acc-check').checked,
             cliente: rowEl.querySelector('.f-cliente').value,
-            gestor: rowEl.querySelector('.f-gestor').value,
-            supervisor: rowEl.querySelector('.f-supervisor').value
+            gestor: nomeValue(rowEl, 'gestor'),
+            supervisor: nomeValue(rowEl, 'supervisor')
           });
         });
         return edits;
@@ -874,6 +1085,8 @@ function renderAppPage(params) {
           const idx = rows.indexOf(row);
           const e = row.existing || {};
           const clienteVal = e.cliente || row.name || row.idFormatted || row.id;
+          const gestorVal = e.gestor || '';
+          const supervisorVal = e.supervisor || '';
           const icon = row.platform === 'GOOGLE' ? ICON_GOOGLE : ICON_META;
           html += '<div class="acc-row unchecked" data-idx="' + idx + '" data-platform="' + row.platform + '" data-id="' + esc(row.id) + '" data-search="' + esc(String(row.name || '') + ' ' + row.id).toLowerCase() + '">'
             + '<div><input type="checkbox" class="acc-check"></div>'
@@ -886,8 +1099,8 @@ function renderAppPage(params) {
             + (row.fromSaved ? '<span class="acc-flag saved">Salva (fora da API)</span>' : '')
             + '</div></div>'
             + '<div class="f-wrap"><input class="acc-input f-cliente" placeholder="Cliente" value="' + esc(clienteVal) + '"></div>'
-            + '<div class="f-wrap"><input class="acc-input f-gestor" placeholder="Gestor" value="' + esc(e.gestor || '') + '"></div>'
-            + '<div class="f-wrap"><input class="acc-input f-supervisor" placeholder="Supervisor" value="' + esc(e.supervisor || '') + '"></div>'
+            + '<div class="f-wrap"><div class="sel-wrap" data-nome-type="gestor" data-prev-value="' + esc(gestorVal) + '"><select class="acc-input sel-nome f-gestor">' + nomeOptionsHtml('gestor', gestorVal) + '</select><button class="del-nome" type="button" title="Excluir da lista">🗑</button></div></div>'
+            + '<div class="f-wrap"><div class="sel-wrap" data-nome-type="supervisor" data-prev-value="' + esc(supervisorVal) + '"><select class="acc-input sel-nome f-supervisor">' + nomeOptionsHtml('supervisor', supervisorVal) + '</select><button class="del-nome" type="button" title="Excluir da lista">🗑</button></div></div>'
             + '</div>';
         }
         html += '</div>';
@@ -903,8 +1116,20 @@ function renderAppPage(params) {
             updateSummary();
             scheduleAutoSave(700);
           });
-          rowEl.querySelectorAll('.acc-input').forEach(input => {
+          rowEl.querySelectorAll('input.acc-input').forEach(input => {
             input.addEventListener('input', () => { scheduleAutoSave(1600); });
+          });
+          rowEl.querySelectorAll('.sel-nome').forEach(sel => {
+            updateDelVisibility(sel);
+            sel.addEventListener('change', () => {
+              if (sel.value === '__novo__') { startNovoNome(sel); return; }
+              sel.closest('.sel-wrap').dataset.prevValue = sel.value;
+              updateDelVisibility(sel);
+              scheduleAutoSave(700);
+            });
+          });
+          rowEl.querySelectorAll('.del-nome').forEach(btn => {
+            btn.addEventListener('click', () => askDeleteNome(btn));
           });
         });
 
@@ -914,8 +1139,20 @@ function renderAppPage(params) {
             if (!pe) return;
             rowEl.querySelector('.acc-check').checked = pe.checked;
             rowEl.querySelector('.f-cliente').value = pe.cliente;
-            rowEl.querySelector('.f-gestor').value = pe.gestor;
-            rowEl.querySelector('.f-supervisor').value = pe.supervisor;
+            const gSel = rowEl.querySelector('.f-gestor');
+            if (gSel) {
+              gSel.innerHTML = nomeOptionsHtml('gestor', pe.gestor || '');
+              gSel.value = pe.gestor || '';
+              gSel.closest('.sel-wrap').dataset.prevValue = pe.gestor || '';
+              updateDelVisibility(gSel);
+            }
+            const sSel = rowEl.querySelector('.f-supervisor');
+            if (sSel) {
+              sSel.innerHTML = nomeOptionsHtml('supervisor', pe.supervisor || '');
+              sSel.value = pe.supervisor || '';
+              sSel.closest('.sel-wrap').dataset.prevValue = pe.supervisor || '';
+              updateDelVisibility(sSel);
+            }
             rowEl.classList.toggle('unchecked', !pe.checked);
           });
         }
@@ -949,8 +1186,8 @@ function renderAppPage(params) {
             plataforma: rowEl.dataset.platform,
             customer_id: rowEl.dataset.id,
             cliente: rowEl.querySelector('.f-cliente').value.trim(),
-            gestor: rowEl.querySelector('.f-gestor').value.trim(),
-            supervisor: rowEl.querySelector('.f-supervisor').value.trim(),
+            gestor: nomeValue(rowEl, 'gestor').trim(),
+            supervisor: nomeValue(rowEl, 'supervisor').trim(),
             login_customer_id: row.mccLogin || ''
           });
         });
@@ -960,7 +1197,11 @@ function renderAppPage(params) {
       async function loadState() {
         try {
           const data = await apiGet('/api/settings?secret=' + encodeURIComponent(secret));
-          state = { tokens: data.tokens, accounts: data.accounts || [] };
+          state = {
+            tokens: data.tokens,
+            accounts: data.accounts || [],
+            nomes: { gestores: (data.nomes && data.nomes.gestores) || [], supervisores: (data.nomes && data.nomes.supervisores) || [] }
+          };
           renderTokens();
           if (!rows.length && state.accounts.length) {
             rowsFromSavedOnly();
