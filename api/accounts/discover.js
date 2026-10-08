@@ -281,12 +281,10 @@ async function discoverGoogleAccounts(req, existingBykey) {
   let accounts = Array.from(byId.values()).slice(0, GOOGLE_MAX_ACCOUNTS);
   accounts.sort((a, b) => Number(a.manager === false) - Number(b.manager === false) || String(a.name || a.id).localeCompare(String(b.name || b.id)));
 
-  // Hint quando não veio nada: guia o usuário para informar o MCC
+  // Hint quando não veio nada (raro — a varredura cobre os gerenciadores diretos)
   let hint = null;
   if (!accounts.length) {
-    hint = knownMccIds.length
-      ? 'Nenhuma conta encontrada nem via MCCs conhecidos (' + knownMccIds.join(', ') + '). Verifique se o REFRESH_TOKEN tem acesso ao MCC e se o ID está correto.'
-      : 'Nenhuma conta com acesso direto ao REFRESH_TOKEN (listAccessibleCustomers vazio). Se suas contas ficam sob um MCC (conta gerenciadora), informe o ID dele (10 dígitos) no campo "MCC Google" ao lado e clique em Buscar de novo.';
+    hint = 'Nenhuma conta Google Ads encontrada. Verifique se o REFRESH_TOKEN é de um usuário com acesso às contas (direto ou via gerenciador).';
   }
 
   return {

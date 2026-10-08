@@ -195,13 +195,15 @@ async function importFromConfigsSheet(sheets, spreadsheetId) {
     if (plataforma === 'GOOGLE' && !/^\d{10}$/.test(customerId)) continue;
 
     const revisaoRaw = String(idxRevisao >= 0 ? (row[idxRevisao] || '') : '').trim();
+    // O conceito de revisão foi removido da página web: toda conta importada
+    // entra como 'ok' — o check na página controla o que processa.
     accounts.push({
       cliente,
       plataforma,
       customer_id: customerId,
       gestor: String(row[idxGestor] || '').trim(),
       supervisor: idxSupervisor >= 0 ? String(row[idxSupervisor] || '').trim() : '',
-      revisao: revisaoRaw.toLowerCase() === 'ok' ? 'ok' : 'revisar',
+      revisao: 'ok',
       login_customer_id: idxLoginCustomerId >= 0 ? String(row[idxLoginCustomerId] || '').replace(/\D/g, '') : ''
     });
   }

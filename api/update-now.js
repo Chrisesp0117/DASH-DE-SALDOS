@@ -1,7 +1,7 @@
 ﻿require('dotenv').config({ path: '.env' });
 
 const { readJobState, getJobLockMeta } = require('../src/core/jobStateSupabase');
-const { renderHtmlPage } = require('./update-now-ui');
+const { renderAppPage } = require('./app-ui');
 const { enqueueJob } = require('../src/services/jobQueue');
 
 function getQueryValue(req, key) {
@@ -126,10 +126,10 @@ module.exports = async (req, res) => {
     }
   }
 
-  // GET: renderiza a página de monitor de fila
+  // GET: renderiza a página única com abas (monitor + configurações)
   try {
     const s = await currentState();
-    const html = renderHtmlPage({
+    const html = renderAppPage({
       secret,
       initialState: {
         running: s.running,
@@ -140,6 +140,6 @@ module.exports = async (req, res) => {
     });
     return sendHtml(res, html, 200);
   } catch (error) {
-    return sendHtml(res, '<h1>500 \\u2014 Erro</h1><p>' + (error && error.message ? error.message : 'Erro ao carregar') + '</p>', 500);
+    return sendHtml(res, '<h1>500 \u2014 Erro</h1><p>' + (error && error.message ? error.message : 'Erro ao carregar') + '</p>', 500);
   }
 };

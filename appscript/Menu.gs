@@ -14,9 +14,9 @@
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('FINANCE DASH')
-    .addItem('Abrir painel manual', 'abrirLinkPopUp')
+    .addItem('Abrir painel web (atualizações)', 'abrirLinkPopUp')
     .addSeparator()
-    .addItem('Abrir configurações web (contas de anúncio)', 'abrirConfiguracoesWeb')
+    .addItem('Abrir configurações (contas de anúncio)', 'abrirConfiguracoesWeb')
     .addItem('Enfileirar atualização completa', 'menuEnfileirarCompleta')
     .addItem('Enfileirar só DATABASE', 'menuEnfileirarDatabaseOnly')
     .addItem('Enfileirar com reset de cursor', 'menuEnfileirarReset')
