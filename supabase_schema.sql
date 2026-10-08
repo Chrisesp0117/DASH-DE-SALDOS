@@ -328,6 +328,7 @@ BEGIN
   END IF;
 END$$;
 
+DROP TRIGGER IF EXISTS trg_accounts_config_updated_at ON public.accounts_config;
 CREATE TRIGGER trg_accounts_config_updated_at
   BEFORE UPDATE ON public.accounts_config
   FOR EACH ROW
@@ -353,6 +354,7 @@ BEGIN
   END IF;
 END$$;
 
+DROP TRIGGER IF EXISTS trg_app_settings_updated_at ON public.app_settings;
 CREATE TRIGGER trg_app_settings_updated_at
   BEFORE UPDATE ON public.app_settings
   FOR EACH ROW
