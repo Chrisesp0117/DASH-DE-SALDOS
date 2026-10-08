@@ -16,12 +16,46 @@ function onOpen() {
     .createMenu('FINANCE DASH')
     .addItem('Abrir painel manual', 'abrirLinkPopUp')
     .addSeparator()
+    .addItem('Abrir configurações web (contas e conexões)', 'abrirConfiguracoesWeb')
     .addItem('Enfileirar atualização completa', 'menuEnfileirarCompleta')
     .addItem('Enfileirar só DATABASE', 'menuEnfileirarDatabaseOnly')
     .addItem('Enfileirar com reset de cursor', 'menuEnfileirarReset')
     .addSeparator()
     .addItem('Ver status do job', 'menuVerStatus')
     .addToUi();
+}
+
+/**
+ * Abre a página web de configurações (conexões Google/Meta e contas de anúncio).
+ */
+function abrirConfiguracoesWeb() {
+  const url = getSettingsUiUrl_();
+  const htmlContent = `
+    <html>
+      <head>
+        <script>
+          function abrirJanela() {
+            window.open('${url}', 'FINANCE DASH CONFIG',
+              'width=' + Math.min(1100, screen.width - 80) + ', height=' + (screen.height - 120) +
+              ', top=' + (screen.height / 14) + ', left=' + ((screen.width - 1100) / 2) +
+              ', scrollbars=yes, resizable=yes');
+            setTimeout(function() {
+              google.script.host.close();
+            }, 1000);
+          }
+        </script>
+      </head>
+      <body onload="abrirJanela()" style="font-family: sans-serif; text-align: center; padding-top: 20px;">
+        <p>Abrindo configurações web...</p>
+        <button onclick="abrirJanela()">Clique aqui se não abrir</button>
+      </body>
+    </html>
+  `;
+
+  SpreadsheetApp.getUi().showModalDialog(
+    HtmlService.createHtmlOutput(htmlContent).setWidth(420).setHeight(160),
+    'FINANCE DASH — Configurações'
+  );
 }
 
 /**

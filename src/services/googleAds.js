@@ -337,4 +337,4 @@ async function getGoogleData(customerId, refreshToken, context = {}) {
   };
 }
 
-module.exports = { getGoogleData };
+module.exports = { getGoogleData, ads, normalizeDigits };

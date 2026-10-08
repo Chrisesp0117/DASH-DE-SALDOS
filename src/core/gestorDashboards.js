@@ -7,6 +7,7 @@
 
 const { generateBlocosPorGestor } = require('./visualBlocks');
 const { readDatabaseRows } = require('../services/supabase');
+const { listAccounts } = require('../services/accountsConfig');
 
 const DASH_PREFIX = 'DASH-';
 const DASH_LAST_UPDATE_LABEL_CELL = 'D1';
@@ -87,6 +88,22 @@ async function getSheetMeta(sheets, spreadsheetId) {
 }
 
 async function listGestoresAtivos(sheets, spreadsheetId) {
+  // 1) accounts_config (Supabase) — fonte configurada pela página web
+  try {
+    const rows = await listAccounts();
+    const gestores = new Set();
+    for (const row of rows) {
+      const gestor = String(row && row.gestor || '').trim();
+      if (gestor) {
+        gestores.add(gestor);
+      }
+    }
+    return Array.from(gestores);
+  } catch (error) {
+    console.warn('listGestoresAtivos: accounts_config indisponível (' + (error && error.message || error) + ') — tentando aba CONFIGS');
+  }
+
+  // 2) Fallback legado: aba CONFIGS da planilha
   try {
     const clientesRes = await sheets.spreadsheets.values.get({
       spreadsheetId,

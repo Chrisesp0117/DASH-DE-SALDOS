@@ -5,6 +5,8 @@ const { getGoogleData } = require('./services/googleAds');
 const { getMetaData } = require('./services/meta');
 const { buildRow } = require('./core/calculator');
 const { upsertDatabaseRows, clearDatabase } = require('./services/supabase');
+const { loadClientesFromDatabase } = require('./services/accountsConfig');
+const { getGoogleRefreshToken, getMetaAccessToken } = require('./services/connections');
 const {
   readJobState,
   writeJobState,
@@ -46,6 +48,34 @@ async function updateWelcomeStatus() {
   // Aba de boas-vindas removida do projeto. As unicas abas existentes sao SUPERVISOR, DASH-* e CONFIGS.
   // A origem (Manual/Automático) agora e escrita em cada DASH-{Gestor} celula D2.
   return;
+}
+
+/**
+ * Carrega a lista de contas a processar.
+ *  1. accounts_config (Supabase) — configurada pela página web /api/settings-ui
+ *  2. Fallback: aba CONFIGS da planilha (legado, transição)
+ * Retorna { headerRow, configRows, source } no formato posicional esperado
+ * pelo parser de índices abaixo (header idêntico ao da CONFIGS).
+ */
+async function loadClientes() {
+  try {
+    const fromDb = await loadClientesFromDatabase();
+    if (fromDb && fromDb.configRows.length) {
+      console.log('[run-init] Fonte das contas: accounts_config (Supabase) — ' + fromDb.configRows.length + ' linha(s)');
+      return fromDb;
+    }
+    console.warn('[loadClientes] accounts_config vazia — usando aba CONFIGS da planilha (legado). Configure as contas em /api/settings-ui para migrar.');
+  } catch (e) {
+    console.warn('[loadClientes] accounts_config indisponível (' + (e && e.message || e) + ') — usando aba CONFIGS da planilha (legado).');
+  }
+
+  const sheets = await getSheets();
+  const clientesRes = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.SPREADSHEET_ID,
+    range: 'CONFIGS!A1:Z5000'
+  });
+  const values = clientesRes.data.values || [];
+  return { headerRow: values[0] || [], configRows: values.slice(1), source: 'sheet' };
 }
 
 async function readJobCursor() {
@@ -121,7 +151,7 @@ async function processClienteRow(row, indices) {
       } else {
         data = await getGoogleData(
           customerIdNormalized,
-          process.env.REFRESH_TOKEN,
+          await getGoogleRefreshToken(),
           {
             cliente,
             plataforma,
@@ -135,7 +165,7 @@ async function processClienteRow(row, indices) {
     if (plataforma === 'META') {
       data = await getMetaData(
         id,
-        process.env.META_TOKEN,
+        await getMetaAccessToken(),
         { cliente, plataforma, id }
       );
     }
@@ -186,8 +216,6 @@ async function run(options = {}) {
   const ownsJobControl = !options.jobControl;
   let jobControl = options.jobControl || null;
 
-  const sheets = await getSheets();
-
   if (!jobControl) {
     jobControl = await acquireJobStateLock({
       leaseMs: Number(process.env.JOB_LEASE_MS || 10 * 60 * 1000)
@@ -206,16 +234,9 @@ async function run(options = {}) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  const clientesRes = await sheets.spreadsheets.values.get({
-    spreadsheetId: process.env.SPREADSHEET_ID,
-    range: 'CONFIGS!A1:Z5000'
-  });
+  const { headerRow, configRows, source } = await loadClientes();
 
-  const clientesValues = clientesRes.data.values || [];
-  const headerRow = clientesValues[0] || [];
-  const configRows = clientesValues.slice(1);
-
-  console.log('[DEBUG] clientesValues.length=' + clientesValues.length + ', configRows=' + configRows.length + ', batchSize=' + batchSize);
+  console.log('[DEBUG] fonte=' + source + ', configRows=' + configRows.length + ', batchSize=' + batchSize);
 
   const headerMap = new Map(
     headerRow.map((header, index) => [String(header || '').trim().toLowerCase(), index])
@@ -248,12 +269,12 @@ async function run(options = {}) {
   const idxLoginCustomerId = getIndexAny(['LoginCustomerId', 'Login Customer ID', 'MCC', 'MCC_ID', 'Login MCC'], -1);
 
   // Considera apenas linhas com nome de cliente preenchido. Linhas residuais da
-  // CONFIGS (sem nome) não são clientes: não devem ser contadas no painel nem
-  // gravadas na DATABASE, onde criavam o bloco "Sem Gestor" e a aba DASH-Sem Gestor.
+  // fonte de contas (sem nome) não são clientes: não devem ser contadas no painel
+  // nem gravadas na DATABASE, onde criavam o bloco "Sem Gestor" e a aba DASH-Sem Gestor.
   const clientes = configRows.filter(row => String(row[idxCliente] || '').trim() !== '');
   const linhasSemCliente = configRows.length - clientes.length;
   if (linhasSemCliente > 0) {
-    console.log('[run-init] ' + linhasSemCliente + ' linha(s) da CONFIGS ignorada(s) por estar sem nome de cliente');
+    console.log('[run-init] ' + linhasSemCliente + ' linha(s) da fonte de contas ignorada(s) por estar sem nome de cliente');
   }
 
   const totalClientes = clientes.length;
